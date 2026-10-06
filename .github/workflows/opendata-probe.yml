@@ -4,6 +4,10 @@ name: Open data coverage probe
 # datasets (Overture Maps places, Foursquare OS Places) contain. Prints counts only.
 on:
   workflow_dispatch:
+    inputs:
+      mode:
+        description: "coverage | taxonomy"
+        default: "coverage"
 
 permissions:
   contents: read
@@ -20,4 +24,4 @@ jobs:
       - name: Install
         run: pip install -r requirements.txt duckdb
       - name: Probe
-        run: python scripts/ci/opendata_probe.py
+        run: python scripts/ci/opendata_probe.py config/plant-parlour.toml "${{ inputs.mode }}"

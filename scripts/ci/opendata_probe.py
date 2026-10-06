@@ -130,7 +130,40 @@ def fsq(cfg):
              "FSQ: last refreshed (year)")
 
 
+def overture_taxonomy(cfg):
+    """Fine-grained category codes (taxonomy.primary) relevant to the campaign, with samples."""
+    rel = [r for r in releases(OVERTURE) if re.match(r"\d{4}-\d{2}-\d{2}", r)][-1]
+    xmin, ymin, xmax, ymax = bbox(cfg)
+    c = con()
+    c.execute("SET s3_region='us-west-2';")
+    src = f"read_parquet('s3://{OVERTURE}/release/{rel}/theme=places/type=place/*', hive_partitioning=1)"
+    c.execute(f"CREATE TABLE ov AS SELECT names.primary AS name, taxonomy, basic_category, confidence, phones, websites, emails, "
+              f"socials, brand.names.primary AS brand, operating_status FROM {src} "
+              f"WHERE bbox.xmin BETWEEN {xmin} AND {xmax} AND bbox.ymin BETWEEN {ymin} AND {ymax}")
+    words = ("caf|coffee|tea_|restaurant|eatery|dining|bistro|lounge|bar$|pub|banquet|wedding|event|party|venue|"
+             "conven|interior|design|architect|decor|hotel|resort|lodg|guest|hostel|cowork|office_space|shared_office|"
+             "caterer|florist|landscap|garden|nursery")
+    show(c, f"SELECT taxonomy.primary AS code, basic_category, count(*) n, count(*) FILTER (WHERE len(phones) > 0) phone, "
+            f"count(*) FILTER (WHERE len(emails) > 0) email, count(*) FILTER (WHERE len(websites) > 0) web, "
+            f"round(avg(confidence), 2) conf FROM ov WHERE regexp_matches(lower(coalesce(taxonomy.primary, '')), '{words}') "
+            f"GROUP BY 1, 2 ORDER BY 3 DESC LIMIT 80", "Overture taxonomy codes relevant to the campaign")
+    show(c, "SELECT CASE WHEN confidence < 0.2 THEN '0.0-0.2' WHEN confidence < 0.4 THEN '0.2-0.4' WHEN confidence < 0.6 THEN '0.4-0.6' "
+            "WHEN confidence < 0.8 THEN '0.6-0.8' ELSE '0.8-1.0' END AS conf, count(*) n, count(*) FILTER (WHERE len(phones) > 0) phone "
+            "FROM ov GROUP BY 1 ORDER BY 1", "Overture confidence distribution (all places)")
+    show(c, "SELECT brand, count(*) n FROM ov WHERE brand IS NOT NULL GROUP BY 1 ORDER BY 2 DESC LIMIT 25", "Overture brands (chains)")
+    for code in ("interior_design", "banquet_hall", "wedding_planning", "event_planning", "coworking_space", "caterer", "cafe"):
+        show(c, f"SELECT name, taxonomy.primary AS code, len(phones) > 0 phone, len(emails) > 0 email, len(websites) > 0 web, "
+                f"round(confidence, 2) conf FROM ov WHERE taxonomy.primary ILIKE '%{code}%' ORDER BY confidence DESC LIMIT 12",
+             f"sample names for codes like {code}")
+    show(c, "SELECT taxonomy.primary AS code, count(*) n FROM ov WHERE regexp_matches(lower(name), "
+            "'interior|banquet|cowork|decorat|event management|wedding planner|architect') GROUP BY 1 ORDER BY 2 DESC LIMIT 30",
+         "codes used for places whose NAME says interior/banquet/coworking/decorator/event/architect")
+
+
 if __name__ == "__main__":
+    if len(sys.argv) > 2 and sys.argv[2] == "taxonomy":
+        overture_taxonomy(load_config(sys.argv[1]))
+        sys.exit(0)
     cfg = load_config(sys.argv[1] if len(sys.argv) > 1 else "config/plant-parlour.toml")
     print("campaign box (lng/lat):", [round(v, 3) for v in bbox(cfg)])
     for fn in (overture, fsq):
