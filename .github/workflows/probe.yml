@@ -1,0 +1,30 @@
+name: Live source probe
+
+# Manual diagnostics: checks that Google Maps, business websites, Instagram,
+# search engines and OpenStreetMap respond from GitHub's servers.
+on:
+  workflow_dispatch:
+    inputs:
+      only:
+        description: "Comma list of probes (gmaps,web,instagram,search,overpass); empty = all"
+        required: false
+        default: ""
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install
+        run: |
+          pip install -r requirements.txt
+          pip install -r requirements-extra.txt || echo "curl_cffi unavailable; continuing with requests"
+      - name: Probe
+        run: python -m leadgen.probe --only "${{ inputs.only }}"

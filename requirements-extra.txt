@@ -1,0 +1,4 @@
+# Optional: browser-grade TLS fingerprint for Google/Instagram/search requests.
+# Has binary wheels for x86_64 and aarch64 Linux (GitHub Actions, PRoot Ubuntu).
+# If it fails to install on a device, the system falls back to `requests`.
+curl_cffi>=0.7

@@ -1,0 +1,22 @@
+# Runtime state and outputs: never commit lead data or secrets (this repo is public)
+state/
+state-out/
+out/
+*.sqlite
+*.sqlite-journal
+*.sqlite-wal
+*.sqlite-shm
+*.enc
+*.csv
+secrets.env
+*.json.key
+google_credentials*.json
+service-account*.json
+
+# Python
+__pycache__/
+*.pyc
+.pytest_cache/
+.venv/
+venv/
+*.egg-info/
