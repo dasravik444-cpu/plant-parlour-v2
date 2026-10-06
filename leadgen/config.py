@@ -129,6 +129,9 @@ def apply_compliance(cfg: Config) -> None:
     standard: adds Google Maps and web-search scraping (uses [discovery].providers as written).
         More complete, but against Google's terms of service - the owner's explicit opt-in.
     """
+    override = os.environ.get("PP_MODE", "").strip()
+    if override in ("open-data", "hybrid", "standard"):
+        cfg["compliance"]["mode"] = override
     mode = cfg["compliance"]["mode"]
     if mode == "open-data":
         cfg["discovery"]["providers"] = list(OPEN_DATA_PROVIDERS)

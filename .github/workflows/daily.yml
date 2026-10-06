@@ -30,9 +30,12 @@ on:
         type: boolean
         default: true
       replan:
-        description: "Re-plan the area first (needed after changing area, days or categories; found leads are kept)"
+        description: "Re-plan the area first (needed after changing area or days; found leads are kept)"
         type: boolean
         default: false
+      mode:
+        description: "Override compliance mode: open-data | hybrid | standard (empty = config value)"
+        default: ""
       maintainer_pubkey:
         description: "Optional: base64 RSA public key - prints an ENCRYPTED sample of leads for a quality check"
         default: ""
@@ -59,6 +62,7 @@ jobs:
       FOURSQUARE_API_KEY: ${{ secrets.FOURSQUARE_API_KEY }}
       PYTHONUNBUFFERED: "1"
       PERSIST: ${{ github.event_name != 'workflow_dispatch' || inputs.persist_state }}
+      PP_MODE: ${{ github.event_name == 'workflow_dispatch' && inputs.mode || '' }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
