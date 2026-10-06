@@ -58,3 +58,36 @@ def test_search_parsers():
            '<a class="result__a" href="//duckduckgo.com/l/?uddg=https%3A%2F%2Fwww.facebook.com%2Fafraadeli%2F&rut=x">Afraa Deli | Facebook</a></h2>'
            '<a class="result__snippet">Cafe</a></div></div>')
     assert parse_ddg_html(ddg)[0].url == "https://www.facebook.com/afraadeli/"
+
+
+def _search_with(router):
+    from helpers import FakeHttp
+    from leadgen.enrich.search import WebSearch
+
+    return WebSearch(FakeHttp(router), interval=0.0, jitter=0.0)
+
+
+def test_empty_pages_are_not_trusted_until_an_engine_has_returned_results():
+    import pytest
+    from leadgen.net import BreakerOpen
+
+    state = {"yahoo_results": False}
+
+    def router(method, url, params, data):
+        if "yahoo.com" in url:
+            if state["yahoo_results"]:
+                return (200, yahoo_html([("Cafe X (@cafex) • Instagram", "https://www.instagram.com/cafex/", "")]), "text/html")
+            return (200, "<html><body><ol></ol></body></html>", "text/html")   # parses to nothing
+        return (202, "", "text/html")                                          # DuckDuckGo rate limit
+    ws = _search_with(router)
+    for _ in range(5):
+        with pytest.raises(BreakerOpen):            # empty answers before any result: keep the task for later
+            ws.search('"Cafe X" Kolkata instagram')
+    assert ws.http.breaker("search:yahoo").is_open()   # five empty pages in a row: layout probably changed
+    assert not ws.available()
+
+    ws2 = _search_with(router)
+    state["yahoo_results"] = True
+    assert ws2.search('"Cafe X" Kolkata instagram')     # engine proves it parses...
+    state["yahoo_results"] = False
+    assert ws2.search('"Cafe Y" Kolkata instagram') == []   # ...so a later empty page is a real "nothing found"

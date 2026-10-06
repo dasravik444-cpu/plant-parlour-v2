@@ -213,6 +213,8 @@ class Runner:
         if (code == 0 and self.discovery_requested and not self.stats["searches_attempted"] and self.max_searches != 0
                 and planner.has_plan() and self._open_searches() and self._qualified_today() < self.target):
             self.warnings.append("no searches were run this time (time budget used up before discovery) - work continues next run")
+        if self.enrich_enabled and self.cfg["enrich"]["social_search"] and not self.search.available():
+            self.warnings.append("web search unavailable this run - Instagram/Facebook lookups postponed")
         if self.stats["gmaps_empty_unconfirmed"] >= 10 and not self.stats["returned_gmaps"]:
             self.warnings.append(f"Google Maps answered {self.stats['gmaps_empty_unconfirmed']} searches with no businesses at all - "
                                  "its response format may have changed or it is soft-blocking (searches kept for later; "

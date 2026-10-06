@@ -116,6 +116,7 @@ class WebSearch:
         self.brave_key = os.environ.get("BRAVE_API_KEY", "").strip()
         self._lock = threading.Lock()
         self.stats = {e: {"ok": 0, "blocked": 0, "empty": 0, "error": 0} for e in self.engines + ["brave_api"]}
+        self.unconfirmed_empty = {e: 0 for e in self.engines}
 
     def available(self) -> bool:
         return bool(self.brave_key) or any(not self.http.breaker("search:" + e).is_open() for e in self.engines)
@@ -145,7 +146,10 @@ class WebSearch:
 
     def search(self, query: str) -> list[Result]:
         """Engines are tried in order of reliability; the first healthy one that answers wins.
-        Returns [] if every engine is unavailable."""
+        Returns [] if every engine is unavailable. Raises BreakerOpen when the only answers were
+        empty pages from engines that have not returned any result yet in this run (a changed page
+        layout looks exactly like "nothing found"), so the caller keeps the task for later."""
+        unconfirmed = False
         for engine in self.engines:
             if self.http.breaker("search:" + engine).is_open():
                 continue
@@ -164,10 +168,21 @@ class WebSearch:
                 continue
             if not results:
                 self.stats[engine]["empty"] += 1
-                if r.status == 200:
+                if r.status != 200:
+                    continue
+                with self._lock:
+                    trusted = self.stats[engine]["ok"] > 0
+                    if not trusted:
+                        self.unconfirmed_empty[engine] += 1
+                        broken = self.unconfirmed_empty[engine] >= 5
+                if trusted:
                     return []
+                unconfirmed = True
+                if broken:
+                    self.http.breaker("search:" + engine).trip("only empty result pages - page layout changed?")
                 continue
-            self.stats[engine]["ok"] += 1
+            with self._lock:
+                self.stats[engine]["ok"] += 1
             return results
         if self.brave_key and not self.http.breaker("search:brave_api").is_open():
             try:
@@ -176,4 +191,6 @@ class WebSearch:
                 return res
             except FetchError:
                 self.stats["brave_api"]["error"] += 1
+        if unconfirmed:
+            raise BreakerOpen("web search gave only empty pages so far this run - kept for later")
         return []
