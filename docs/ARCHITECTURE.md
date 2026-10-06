@@ -69,6 +69,33 @@ A business becomes a **lead** when it has at least one phone, WhatsApp, email
 or Instagram that is not low-confidence. Low-confidence findings (e.g. a number
 seen only in a search snippet) go to the *Other Contacts (unverified)* column.
 
+## Accuracy rules (from reviewing real rows)
+
+* **Search results must be profile pages.** A link to a post, photo or video is
+  never reduced to its account: in search results that account is often a food
+  blogger or a guest, not the business.
+* **Names match word by word.** Every distinctive word of the business name must
+  appear (in the profile name or at word boundaries in the handle). Spelling
+  variants may differ only in vowels or doubled letters (Bangali/Bengali,
+  Dawat/Daawat), not in consonants (Arabiya is not Arabica). SEO tails in
+  Maps names ("- Best Banquet Hall in Kolkata") are ignored.
+* **Common words need local proof.** If the only matching word is a common
+  English word or very short ("Natural", "Empire", "Zoi"), the profile must
+  mention the city or locality; otherwise it is stored as unverified.
+* **The business's own word wins.** If Google Maps or the business's website
+  names an Instagram/Facebook account, a different account found by search is
+  stored as unverified.
+* **Hijacked domains are ignored.** Expired domains taken over by gambling
+  sites are detected; the site is dropped as the website and a search looks for
+  the real one.
+* **The site must belong to the business.** If neither the business name
+  (title, site name, structured data, domain) nor the phone from the listing
+  appears on a site (e.g. a parent company's site), its contacts are unverified
+  and its description is not used.
+* **Foreign numbers** on an Indian business's website are unverified. Landlines
+  from another region (Delhi +91 11...) are labelled as likely booking-platform
+  lines; Indian mobile ranges are labelled *mobile*.
+
 ## Search squares and parts
 
 * Business density from OpenStreetMap (shops, offices, cafes, hotels...)

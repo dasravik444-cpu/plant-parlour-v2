@@ -126,3 +126,7 @@ def test_search_account_differing_from_listed_one_is_unverified(tmp_path):
     conf = {c["value"]: c["confidence"] for c in db.contacts_for(key) if c["kind"] == "instagram"}
     assert conf["https://www.instagram.com/mochamansion.kol/"] != "low"          # listed on Google Maps
     assert conf["https://www.instagram.com/mochamansionbistro/"] == "low"      # found by search, differs -> unverified
+    from leadgen.report import lead_row
+    row = lead_row(db, db.get_place(key), make_config())
+    assert "mochamansion.kol" in row["Instagram"] and "mochamansionbistro" not in row["Instagram"]
+    assert "mochamansionbistro/ (differs from the account the business lists)" in row["Other Contacts (unverified)"]

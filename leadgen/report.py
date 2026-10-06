@@ -36,7 +36,10 @@ def lead_row(db: DB, p, cfg) -> dict:
         else:
             shown = value
         if c["confidence"] == "low":
-            weak.append(f"{kind}: {shown}")
+            # Say why it is unverified ("name too common to confirm", "foreign number", ...).
+            reason = ", ".join(x.strip() for x in (c["label"] or "").split(",")
+                               if x.strip() and not x.strip().startswith("name match") and kind != "phone")
+            weak.append(f"{kind}: {shown}" + (f" ({reason})" if reason else ""))
             continue
         if kind in good and shown not in good[kind]:
             good[kind].append(shown)

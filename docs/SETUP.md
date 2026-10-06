@@ -73,7 +73,9 @@ Edit `config/plant-parlour.toml` (on GitHub: open the file > pencil icon):
 * Changing the **area, number of days or categories** needs a re-plan: run the
   workflow manually with **replan = true**. Leads already found are kept.
 * For a new city or client, copy the file (e.g. `config/client-b.toml`) and
-  give it its own sheet. (One campaign per repository copy is simplest.)
+  give it its own sheet. (One campaign per repository copy is simplest.) Set
+  `aliases` (other names of the city) and `local_landline_prefixes` (the
+  region's landline codes, `+913` for West Bengal) in `[area]`.
 
 ## 6. The tablet (optional backup)
 
