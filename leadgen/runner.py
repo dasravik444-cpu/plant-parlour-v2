@@ -213,6 +213,13 @@ class Runner:
         if (code == 0 and self.discovery_requested and not self.stats["searches_attempted"] and self.max_searches != 0
                 and planner.has_plan() and self._open_searches() and self._qualified_today() < self.target):
             self.warnings.append("no searches were run this time (time budget used up before discovery) - work continues next run")
+        if self.stats["gmaps_empty_unconfirmed"] >= 10 and not self.stats["returned_gmaps"]:
+            self.warnings.append(f"Google Maps answered {self.stats['gmaps_empty_unconfirmed']} searches with no businesses at all - "
+                                 "its response format may have changed or it is soft-blocking (searches kept for later; "
+                                 "run the Live source probe)")
+            code = max(code, 2)
+            if status == "complete":
+                status = "degraded (Google Maps returned nothing)"
         if self.stats["searches_attempted"] and not self.stats["searches"] and self.stats["searches_failed"]:
             self.warnings.append(f"none of the {self.stats['searches_attempted']} searches succeeded "
                                  f"(last error: {getattr(self, 'last_search_error', '')})")
@@ -416,6 +423,16 @@ class Runner:
                         self.warnings.append(msg)
                     self.discovery_on = False
             return
+        if provider == "gmaps" and not places and not self.stats["returned_gmaps"]:
+            # An empty answer before Maps has returned anything this run cannot be told apart from a
+            # silent format change or soft block: keep the search for later instead of marking the
+            # square as empty. Ten in a row stop discovery for this run and turn it red.
+            self.stats["gmaps_empty_unconfirmed"] += 1
+            with self.db.tx():
+                self.db.defer(task["id"], 6 * 3600, "empty Google Maps answer before any result this run")
+            if self.stats["gmaps_empty_unconfirmed"] >= 10:
+                self.discovery_on = False
+            return
         with self.db.tx():
             new = self._ingest(places, task, p, provider)
             first_page = (meta.get("pages") or [{}])[0].get("valid", len(places)) if provider == "gmaps" else len(places)
@@ -423,6 +440,7 @@ class Runner:
                                           "pages": len(meta.get("pages") or [1])})
         self.stats["searches"] += 1
         self.stats[f"searches_{provider}"] += 1
+        self.stats[f"returned_{provider}"] += len(places)
         self.parts_worked.add(task["part_id"])
         if provider != "gmaps":
             msg = f"Google Maps unavailable for some searches; used fallback provider '{provider}'"

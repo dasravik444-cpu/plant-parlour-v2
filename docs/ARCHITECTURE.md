@@ -20,6 +20,10 @@
    from the start date, so re-runs and missed days never skip territory.
 6. **Always report.** Every run ends with Sheets sync and a report, even when
    cut short; important failures make the run exit non-zero, and GitHub emails you.
+7. **No silent zeros.** An empty Google Maps answer before Maps has returned
+   anything in the run is not trusted (it may be a format change or a soft
+   block): the search is kept for later, and ten in a row stop discovery and
+   turn the run red. Result records that no longer parse count as errors.
 
 ## Agents
 
@@ -44,6 +48,7 @@ loop until deadline or stop signal:
     if new_leads_today < target  OR  searches of today's part (or earlier ones) remain:
         run the next search (plan order) -> ingest places -> queue enrichment
     keep up to 2 x workers enrichment tasks running in a thread pool
+    every 20 minutes: copy new/changed lead rows to the sheet (checkpoint)
     stop when there is nothing left to do now
 drain in-flight work (bounded), put unfinished tasks back in the queue
 refresh part status -> Google Sheets upsert -> Plan tab -> Daily Report row -> JSON + summary
@@ -83,7 +88,10 @@ seen only in a search snippet) go to the *Other Contacts (unverified)* column.
 `state/leadgen.sqlite`: `parts`, `cells`, `tasks`, `places`, `contacts`, `runs`,
 `budget`, `events`, `meta`. On GitHub Actions it is restored before and saved
 after each run as an AES-256 encrypted artifact (`scripts/ci/state.sh`, 90-day
-retention, refreshed daily). Losing it is not a disaster: sheet rows are
+retention, refreshed daily). The restore reads every artifact page and takes
+the newest one of the branch; if listing, download, decryption or the integrity
+check fails, the run stops and nothing is saved, so a good saved state is never
+replaced by a fresh or broken one. Losing it is not a disaster: sheet rows are
 matched by key, so a fresh database updates existing rows instead of
 duplicating them (and adopts their Lead IDs).
 

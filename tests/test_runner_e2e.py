@@ -268,3 +268,43 @@ def test_failed_checkpoint_stops_checkpoints_and_final_sync_retries(tmp_path):
     assert len(made) == 2                                   # one failed checkpoint, then only the final sync
     leads = [row for row in sess.tabs["Leads"]["rows"][1:] if any(str(x) for x in row)]
     assert len(leads) == db.scalar("SELECT COUNT(*) FROM places WHERE qualified=1 AND excluded IS NULL")
+
+
+def test_empty_maps_answers_are_kept_for_later_and_reported(tmp_path):
+    """A silent format change (valid JSON, no businesses) must not mark squares as empty."""
+    cfg = make_config()
+    db = DB(str(tmp_path / "state.sqlite"))
+    state = {"broken": True}
+
+    def maps(method, url, params, data):
+        if state["broken"] and "google.com" in (urlsplit(url).hostname or ""):
+            return (200, gmaps_payload([]), "application/json")
+        return World()(method, url, params, data)
+    code, s = Runner(cfg, db, http=FakeHttp(maps), use_sheets=False).run()
+    assert code == 2 and s["status"] == "degraded (Google Maps returned nothing)"
+    assert any("format may have changed" in w for w in s["warnings"])
+    assert s["stats"]["searches_attempted"] == 10                      # stopped early, not the whole part
+    assert db.scalar("SELECT COUNT(*) FROM tasks WHERE kind='search' AND status IN ('done','failed')") == 0
+    # Maps recovers: the kept searches run normally on a later run.
+    state["broken"] = False
+    db.conn.execute("UPDATE tasks SET next_at=0 WHERE kind='search'")
+    code2, s2 = Runner(cfg, db, http=FakeHttp(maps), use_sheets=False).run()
+    assert code2 == 0 and s2["new_leads_today"] >= 5
+
+
+def test_records_without_ids_count_as_format_change(tmp_path):
+    cfg = make_config()
+    db = DB(str(tmp_path / "state.sqlite"))
+    broken = biz("Some Cafe", *at(0.1, 0.1), "ChIJnoids0000001", phone_intl="+91 98300 99999", phone_local="098300 99999")
+    broken[78] = None
+    broken[10] = None
+
+    def maps(method, url, params, data):
+        if "google.com" in (urlsplit(url).hostname or ""):
+            return (200, gmaps_payload([broken] * 20), "application/json")
+        return World()(method, url, params, data)
+    code, s = Runner(cfg, db, http=FakeHttp(maps), use_sheets=False, max_searches=3).run()
+    assert code == 2 and s["status"].startswith("degraded")
+    assert "format changed" in s["warnings"][-1]
+    assert db.scalar("SELECT COUNT(*) FROM places") == 0
+    assert db.scalar("SELECT COUNT(*) FROM tasks WHERE kind='search' AND status='done'") == 0

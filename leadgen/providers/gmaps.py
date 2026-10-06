@@ -230,6 +230,11 @@ class GoogleMapsSearch:
         except (ValueError, json.JSONDecodeError) as exc:
             self.http.breaker("gmaps").failure(f"unparseable response: {exc}")
             raise FetchError(f"unparseable Google Maps response: {exc}") from exc
+        if meta["records"] and not meta["valid"]:
+            # Result records are there but none has the expected fields: the format changed.
+            # Fail loudly instead of recording "no businesses here".
+            self.http.breaker("gmaps").failure("records without the expected fields")
+            raise FetchError(f"Google Maps response format changed ({meta['records']} records, none parseable)")
         meta.update({"status": r.status, "bytes": len(r.content), "offset": offset})
         return places, meta
 
