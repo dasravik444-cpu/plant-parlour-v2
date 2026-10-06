@@ -1,0 +1,23 @@
+name: Open data coverage probe
+
+# Manual: measures how many businesses in the campaign area the open, re-usable
+# datasets (Overture Maps places, Foursquare OS Places) contain. Prints counts only.
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install
+        run: pip install -r requirements.txt duckdb
+      - name: Probe
+        run: python scripts/ci/opendata_probe.py
