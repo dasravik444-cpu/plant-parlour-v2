@@ -117,23 +117,29 @@ class Planner:
         points, source = [], "openstreetmap"
         localities: list[dict] = []
         if self.http is not None:
-            osm = Overpass(self.http)
-            try:
-                log.info("planner: fetching business density from OpenStreetMap (radius %.0f km, can take a few minutes)...", radius)
-                points = osm.business_points(lat0, lng0, radius, attempts_per_endpoint=2)
-                log.info("planner: %d mapped businesses", len(points))
-            except NetworkDown:
-                raise
-            except (ProviderUnavailable, Exception) as exc:  # noqa: BLE001 - planning must not fail on OSM
-                log.warning("planner: OpenStreetMap density unavailable (%s); using centre-weighted estimate", exc)
-                points = []
-            try:
-                localities = osm.localities(lat0, lng0, radius)
-                log.info("planner: %d locality names", len(localities))
-            except NetworkDown:
-                raise
-            except (ProviderUnavailable, Exception) as exc:  # noqa: BLE001
-                log.warning("planner: locality names unavailable (%s); parts will be named by direction", exc)
+            from concurrent.futures import ThreadPoolExecutor
+
+            osm = Overpass(self.http, timeout=150)
+            log.info("planner: fetching business density and locality names from OpenStreetMap (radius %.0f km, max ~3 min)...", radius)
+            # Both queries in parallel, each racing all mirrors: planning time is bounded (~3 min).
+            with ThreadPoolExecutor(max_workers=2) as ex:
+                f_pts = ex.submit(osm.business_points, lat0, lng0, radius, 185)
+                f_loc = ex.submit(osm.localities, lat0, lng0, radius, 185)
+                try:
+                    points = f_pts.result()
+                    log.info("planner: %d mapped businesses", len(points))
+                except NetworkDown:
+                    raise
+                except Exception as exc:  # noqa: BLE001 - planning must not fail on OSM
+                    log.warning("planner: OpenStreetMap density unavailable (%s); using centre-weighted estimate", exc)
+                    points = []
+                try:
+                    localities = f_loc.result()
+                    log.info("planner: %d locality names", len(localities))
+                except NetworkDown:
+                    raise
+                except Exception as exc:  # noqa: BLE001
+                    log.warning("planner: locality names unavailable (%s); parts will be named by direction", exc)
         if len(points) < 50:
             if require_osm:
                 log.info("planner: OpenStreetMap still unavailable - keeping the current plan")

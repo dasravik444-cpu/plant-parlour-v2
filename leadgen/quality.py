@@ -102,19 +102,34 @@ def is_chain(name: str, chains: list[str]) -> str | None:
     return None
 
 
+def _word_hits(word: str, label: str) -> bool:
+    """Whole-word match (plural 's'/'es' allowed); a trailing '*' in the config word means prefix match."""
+    prefix = word.endswith("*")
+    w = norm_text(word.rstrip("*"))
+    if not w:
+        return False
+    tail = r"" if prefix else r"(s|es)?( |$)"
+    return re.search(r"(^| )" + re.escape(w) + tail, label) is not None
+
+
 def match_category(gcategories: list[str], query_category: str, categories: list[dict]) -> str | None:
-    """Pick our category for a place from Google's labels; None when nothing matches."""
+    """Pick our category for a place from Google's labels; None when nothing matches.
+
+    The most specific match wins ("Event venue" -> banquet/event venue rather than
+    event planner via "event"); ties go to the category whose search found the place."""
     labels = [norm_text(c) for c in gcategories or [] if c]
     if not labels:
         return None
-    # Prefer the category whose search produced the place, if its words match.
-    ordered = sorted(categories, key=lambda c: 0 if c["key"] == query_category else 1)
-    for cat in ordered:
-        words = [norm_text(w) for w in cat.get("match", []) if w]
-        for lab in labels:
-            if any(w and (w == lab or re.search(r"(^| )" + re.escape(w), lab)) for w in words):
-                return cat["key"]
-    return None
+    best, best_len = None, 0
+    for cat in categories:
+        for word in cat.get("match", []):
+            if not word:
+                continue
+            if any(_word_hits(word, lab) for lab in labels):
+                n = len(norm_text(word.rstrip("*")))
+                if n > best_len or (n == best_len and cat["key"] == query_category):
+                    best, best_len = cat["key"], n
+    return best
 
 
 def domain_of(url: str) -> str:

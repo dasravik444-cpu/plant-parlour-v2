@@ -74,3 +74,34 @@ def test_planner_offline_schedule_and_mismatch(tmp_path):
     # secondary queries reference their primary
     t = db.one("SELECT payload FROM tasks WHERE kind='search' AND payload LIKE '%coffee shop%'")
     assert '"primary":false' in t["payload"]
+
+
+def test_overpass_race_uses_fastest_mirror_and_bounds_time():
+    from helpers import FakeHttp
+    from leadgen.providers.base import ProviderUnavailable
+    from leadgen.providers.osm import Overpass
+
+    def router(method, url, params, data):
+        if "private.coffee" in url:
+            time.sleep(1.5)
+            return (200, "22.5\t88.3\n", "text/csv")
+        if "overpass-api.de" in url:
+            return (504, "", "text/html")
+        return (200, "22.6\t88.4\n22.7\t88.5\n", "text/csv")
+    t = time.time()
+    pts = Overpass(FakeHttp(router), timeout=10).business_points(22.58, 88.42, 10, race_s=5)
+    assert pts == [(22.6, 88.4), (22.7, 88.5)] and time.time() - t < 1.2
+
+    def all_bad(method, url, params, data):
+        time.sleep(0.2)
+        return (504, "", "text/html")
+    with pytest.raises(ProviderUnavailable):
+        Overpass(FakeHttp(all_bad), timeout=10).localities(22.58, 88.42, 10, race_s=3)
+
+    def slow(method, url, params, data):
+        time.sleep(3)
+        return (200, "", "text/csv")
+    t = time.time()
+    with pytest.raises(ProviderUnavailable):
+        Overpass(FakeHttp(slow), timeout=10).business_points(22.58, 88.42, 10, race_s=1)
+    assert time.time() - t < 2

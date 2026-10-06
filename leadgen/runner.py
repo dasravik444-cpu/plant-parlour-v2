@@ -80,7 +80,7 @@ class Runner:
     def __init__(self, cfg: Config, db: DB, *, budget_minutes: float | None = None, target: int | None = None,
                  use_sheets: bool = True, discovery: bool = True, max_searches: int | None = None,
                  http: Http | None = None, gmaps=None, search: WebSearch | None = None, sheets_factory=None,
-                 workers: int | None = None, now_fn=time.time):
+                 workers: int | None = None, now_fn=time.time, enrich: bool = True):
         self.cfg, self.db = cfg, db
         rt = cfg["runtime"]
         self.budget_s = float(budget_minutes if budget_minutes is not None else rt["time_budget_minutes"]) * 60
@@ -89,6 +89,7 @@ class Runner:
         self.use_sheets = use_sheets and cfg["sheets"]["enabled"]
         self.discovery_requested = discovery
         self.max_searches = max_searches
+        self.enrich_enabled = enrich
         self.workers = int(workers or cfg["enrich"]["workers"])
         self._http_override, self._gmaps_override, self._search_override = http, gmaps, search
         self.sheets_factory = sheets_factory
@@ -163,6 +164,12 @@ class Runner:
         sheets_result: dict = {"status": "not run"}
         try:
             plan = planner.ensure_plan()
+            # Planning (first run only, bounded to a few minutes) does not eat the discovery budget.
+            planning_s = self.now() - self.started
+            if planning_s > 30:
+                self.deadline = self.now() + self.budget_s - self.margin_s
+                self.http.deadline = self.deadline
+                log.info("planning took %.1f min; the %.0f-minute work budget starts now", planning_s / 60, self.budget_s / 60)
             if not db.get_meta("plan_logged"):
                 log.info("plan: %d parts, %d search squares, %d searches (density source: %s)", plan["parts"], plan["cells"],
                          plan["search_tasks"], plan["density_source"])
@@ -200,6 +207,9 @@ class Runner:
         if self.stats["provider_unavailable"] and not self.stats["searches"] and self.stats["searches_attempted"]:
             self.warnings.append("all discovery providers were unavailable this run")
             code = max(code, 2)
+        if (code == 0 and self.discovery_requested and not self.stats["searches_attempted"] and self.max_searches != 0
+                and planner.has_plan() and self._open_searches() and self._qualified_today() < self.target):
+            self.warnings.append("no searches were run this time (time budget used up before discovery) - work continues next run")
         if self.stats["searches_attempted"] and not self.stats["searches"] and self.stats["searches_failed"]:
             self.warnings.append(f"none of the {self.stats['searches_attempted']} searches succeeded "
                                  f"(last error: {getattr(self, 'last_search_error', '')})")
@@ -300,6 +310,8 @@ class Runner:
                            (self.now(), upto_part))
 
     def _next_enrichment(self):
+        if not self.enrich_enabled:
+            return None
         kinds = [k for k in ("site", "social", "insta", "li") if self._kind_enabled(k)]
         if not kinds:
             return None
@@ -654,6 +666,7 @@ class Runner:
                 added += 1
         if res.description and not place["description"]:
             self.db.update_place(key, description=res.description[:300])
+            self.db.mark_dirty(key)
         if res.status == "error" and t["attempts"] < 1:
             self.db.fail(t["id"], res.error or "site error", max_attempts=2, backoff=(12 * 3600,))
         else:
@@ -720,6 +733,7 @@ class Runner:
             web = normalize_url(prof.external_url)
             if web and not canonical_social(web) and (not is_aggregator(web) or is_link_hub(web)):
                 self.db.update_place(key, website=web)
+                self.db.mark_dirty(key)
                 self._enqueue("site", key, {"url": web, "name": place["name"], "area": place["area"] or "", "found_by": "instagram"},
                               place["part_id"])
         self.db.complete(t["id"], {"exists": True, "contacts": len(prof.contacts), "is_business": prof.is_business})

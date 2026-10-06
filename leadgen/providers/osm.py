@@ -34,12 +34,56 @@ class Overpass:
         self.http = http
         self.timeout = timeout
 
-    def query(self, ql: str, *, expect: str = "json", attempts_per_endpoint: int = 1):
+    def query_race(self, ql: str, *, expect: str = "json", wait_s: float = 200.0):
+        """Send the same query to every mirror at once and use the first good answer.
+
+        Public mirrors differ wildly in speed (verified: one answered in 10 s while another
+        timed out after 200 s), so racing them bounds planning time by the fastest one.
+        Threads are daemons: slower mirrors are simply abandoned."""
+        import queue
+        import threading
+
+        results: queue.Queue = queue.Queue()
+
+        def worker(url):
+            try:
+                r = self.http.post(url, data={"data": ql}, browser=False, interval=0.0, timeout=self.timeout + 20,
+                                   retries=0, max_bytes=60_000_000, headers={"User-Agent": UA, "Accept": "*/*"},
+                                   block_statuses=())
+                if r.status == 200 and not r.truncated:
+                    results.put(("ok", url, r.json() if expect == "json" else r.text))
+                else:
+                    results.put(("err", url, f"HTTP {r.status}"))
+            except NetworkDown as exc:
+                results.put(("down", url, str(exc)))
+            except Exception as exc:  # noqa: BLE001 - any failure just loses the race
+                results.put(("err", url, f"{type(exc).__name__}: {exc}"[:200]))
+
+        for url in ENDPOINTS:
+            threading.Thread(target=worker, args=(url,), daemon=True).start()
+        errors, deadline = [], time.time() + wait_s
+        while len(errors) < len(ENDPOINTS):
+            try:
+                status, url, payload = results.get(timeout=max(0.1, deadline - time.time()))
+            except queue.Empty:
+                break
+            if status == "ok":
+                log.info("overpass: answer from %s", url)
+                return payload
+            if status == "down":
+                raise NetworkDown(payload)
+            errors.append(f"{url.split('/')[2]}: {payload}")
+        raise ProviderUnavailable("no Overpass mirror answered in time: " + "; ".join(errors)[:400])
+
+    def query(self, ql: str, *, expect: str = "json", attempts_per_endpoint: int = 1, max_seconds: float | None = None):
         last = None
+        started = time.time()
         for url in ENDPOINTS:
             if self.http.breaker("overpass:" + url).is_open():
                 continue
             for _ in range(attempts_per_endpoint):
+                if max_seconds is not None and time.time() - started > max_seconds:
+                    raise ProviderUnavailable(f"Overpass time limit ({max_seconds:.0f}s) reached: {last}")
                 try:
                     r = self.http.post(url, data={"data": ql}, service="overpass:" + url, browser=False, interval=2.0,
                                        timeout=self.timeout + 20, retries=0, max_bytes=60_000_000,
@@ -63,11 +107,17 @@ class Overpass:
         raise ProviderUnavailable(f"all Overpass servers failed: {last}")
 
     # -- planning data ----------------------------------------------------------
-    def business_points(self, lat: float, lng: float, radius_km: float, attempts_per_endpoint: int = 1) -> list[tuple[float, float]]:
-        around = f"(around:{int(radius_km * 1000)},{lat:.5f},{lng:.5f})"
-        parts = "".join(f"nwr{f}{around};" for f in DENSITY_FILTERS)
-        ql = f"[out:csv(::lat,::lon;false)][timeout:{self.timeout}];({parts});out center qt;"
-        text = self.query(ql, expect="text", attempts_per_endpoint=attempts_per_endpoint)
+    def business_points(self, lat: float, lng: float, radius_km: float, race_s: float | None = None) -> list[tuple[float, float]]:
+        # A bounding box is far cheaper for Overpass than (around:...) over thousands of km2;
+        # shops/offices as nodes only (most are), hospitality as nodes+ways. Points outside the
+        # circle are dropped by the quadtree.
+        s, w, n, e = square_bbox(lat, lng, 2 * radius_km)
+        bbox = f"({s:.4f},{w:.4f},{n:.4f},{e:.4f})"
+        parts = (f'nwr["amenity"~"^(cafe|restaurant|fast_food|bar|pub|ice_cream|events_venue|conference_centre|coworking_space)$"]{bbox};'
+                 f'nwr["tourism"~"^(hotel|resort|guest_house|motel)$"]{bbox};'
+                 f'node["shop"]{bbox};node["office"]{bbox};')
+        ql = f"[out:csv(::lat,::lon;false)][timeout:{self.timeout}][maxsize:200000000];({parts});out center qt;"
+        text = self.query_race(ql, expect="text", wait_s=race_s or self.timeout + 25)
         pts = []
         for line in text.splitlines():
             bits = line.strip().split("\t")
@@ -78,11 +128,12 @@ class Overpass:
                     continue
         return pts
 
-    def localities(self, lat: float, lng: float, radius_km: float) -> list[dict]:
-        around = f"(around:{int(radius_km * 1000)},{lat:.5f},{lng:.5f})"
+    def localities(self, lat: float, lng: float, radius_km: float, race_s: float | None = None) -> list[dict]:
+        s, w, n, e = square_bbox(lat, lng, 2 * radius_km)
+        bbox = f"({s:.4f},{w:.4f},{n:.4f},{e:.4f})"
         ql = (f'[out:csv(::lat,::lon,name,"name:en",place;false)][timeout:{self.timeout}];'
-              f'node["place"~"^(city|town|suburb|borough|quarter|neighbourhood|village)$"]{around};out qt;')
-        text = self.query(ql, expect="text")
+              f'node["place"~"^(city|town|suburb|borough|quarter|neighbourhood|village)$"]{bbox};out qt;')
+        text = self.query_race(ql, expect="text", wait_s=race_s or self.timeout + 25)
         out = []
         for line in text.splitlines():
             bits = line.split("\t")

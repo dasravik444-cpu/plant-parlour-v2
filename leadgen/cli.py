@@ -96,7 +96,8 @@ def main(argv=None) -> int:
         if args.cmd == "sync":
             from .runner import Runner
 
-            code, summary = Runner(cfg, db, budget_minutes=10, discovery=False, use_sheets=True, max_searches=0).run()
+            code, summary = Runner(cfg, db, budget_minutes=10, discovery=False, use_sheets=True, max_searches=0,
+                                   enrich=False).run()
             return code
         if args.cmd == "export-csv":
             from .report import export_csv

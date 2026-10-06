@@ -27,6 +27,10 @@ on:
         description: "Restore/save the encrypted campaign state (turn off only for throw-away tests)"
         type: boolean
         default: true
+      replan:
+        description: "Re-plan the area first (needed after changing area, days or categories; found leads are kept)"
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -66,6 +70,9 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: bash scripts/ci/state.sh restore
+      - name: Re-plan
+        if: github.event_name == 'workflow_dispatch' && inputs.replan
+        run: python -m leadgen plan --force
       - name: Run daily cycle
         run: |
           args=(run --budget-minutes "${{ inputs.budget_minutes || '80' }}")

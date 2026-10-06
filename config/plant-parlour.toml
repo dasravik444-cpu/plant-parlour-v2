@@ -109,7 +109,7 @@ key = "interior_designer"
 label = "Interior designer / Architect"
 queries = ["interior designer", "architect"]
 min_density = 2   # skip squares with almost no mapped businesses
-match = ["interior", "designer", "architect", "decor", "landscap", "design studio", "design agency"]
+match = ["interior", "interior designer", "architect", "landscap*", "design studio", "design agency", "decorator"]
 osm = ['["office"="architect"]', '["shop"="interior_decoration"]', '["craft"="interior_designer"]']
 
 [[categories]]
