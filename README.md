@@ -63,10 +63,24 @@ carries over automatically. GitHub runs it three times a day (06:07, 14:07 and
 enrichment queue, and exit quickly when nothing is left. The day's first ~150
 leads are enriched first, so every day's batch gets full contact details quickly.
 
-Live trial (6 Oct 2026, 20 searches in central Kolkata, about 10 minutes): 671 new businesses, 538
-leads; phone 530, email 172, Instagram 172, WhatsApp 70. Google Maps returns far
-more businesses per search than the daily target, so the target is normally
-exceeded while each part is covered.
+Live trials (6 Oct 2026, from GitHub Actions, central Kolkata):
+
+* 20 searches, about 10 minutes: 671 new businesses, 538 leads (phone 530,
+  email 172, Instagram 172, WhatsApp 70).
+* All 7 categories, 15 searches, 19 minutes: 614 new businesses, 501 leads (phone
+  481, Instagram 127, email 45, WhatsApp 18 - most websites were still queued
+  when the short test stopped). Planning the 100 km area took 18 seconds.
+
+Google Maps returns far more businesses per search than the daily target, so
+the target is normally exceeded while each part is covered.
+
+**Accuracy review.** 150 real rows across all categories were checked by hand. Every
+wrong attribution found (a food blogger's page shown as a restaurant's Facebook,
+a similarly named cafe's Instagram, a personal profile, a gambling site on an
+expired domain, a parent company's accounts) led to a rule and a regression
+test; see *Accuracy rules* in [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
+Uncertain finds are not thrown away: they appear in *Other Contacts
+(unverified)* with the reason.
 
 ## When something breaks
 
@@ -107,7 +121,7 @@ python -m leadgen export-csv --out leads.csv
 |---|---|
 | Google Maps search (names, phone, website, address, rating, area) | Works. Google may throttle heavy use; the system paces requests and backs off, with fallbacks. |
 | Business websites (email, phones, WhatsApp links, social links) | Works; about half of listings have a website. |
-| Web search for Instagram/Facebook/LinkedIn/website | Yahoo works; DuckDuckGo rate-limits after about 1 query (slow backup). |
+| Web search for Instagram/Facebook/LinkedIn/website | Yahoo works (200+ lookups in a 19-minute run); DuckDuckGo rate-limits after about 1 query (slow backup). Matches must pass the accuracy rules; uncertain ones are marked unverified. |
 | Instagram profile bios (emails/phones) | Blocked when logged out from data-centre IPs (HTTP 401). Instagram *handles* are still found via websites, Maps and search. May work on the tablet. |
 | LinkedIn emails | Not collected (needs paid tools/login, against LinkedIn's terms). Company page URLs are collected. |
 | WhatsApp | Only numbers explicitly published as WhatsApp (wa.me links, "WhatsApp: ..." text). Mobile numbers are labelled *mobile*; WhatsApp registration cannot be verified without WhatsApp's API. |
