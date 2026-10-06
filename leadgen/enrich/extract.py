@@ -52,8 +52,22 @@ def registrable(host: str) -> str:
     return ".".join(parts[-2:])
 
 
-def canonical_social(url: str) -> tuple[str, str] | None:
-    """Return (kind, canonical_url) for a profile/page URL, or None if it is not a profile."""
+# Second path segments that mean "a post/photo/video by this account", not the account itself.
+_CONTENT_SEGS = {
+    "instagram": {"p", "reel", "reels", "tv", "stories", "tagged", "guide", "guides", "highlights"},
+    "facebook": {"posts", "photos", "photo", "photo.php", "videos", "video", "reel", "reels", "events", "permalink.php",
+                 "story.php", "notes", "albums", "media", "live", "community", "reviews", "mentions"},
+    "twitter": {"status", "statuses", "photo", "media", "with_replies"},
+    "youtube": {"watch", "shorts", "live"},
+}
+
+
+def canonical_social(url: str, profile_only: bool = False) -> tuple[str, str] | None:
+    """Return (kind, canonical_url) for a profile/page URL, or None if it is not a profile.
+
+    profile_only=True (used for search results): a link to a post, photo or video is
+    rejected instead of being reduced to its account, because in search results that
+    account is often someone else's (a food blogger reviewing the business)."""
     try:
         parts = urlsplit(url.strip())
     except ValueError:
@@ -69,6 +83,10 @@ def canonical_social(url: str) -> tuple[str, str] | None:
     if not kind:
         return None
     segs = [unquote(s) for s in parts.path.split("/") if s]
+    if profile_only and len(segs) >= 2 and segs[1].lower() in _CONTENT_SEGS.get(kind, set()):
+        return None
+    if profile_only and kind == "facebook" and segs and segs[0].lower() in ("story.php", "permalink.php", "photo.php", "watch"):
+        return None
     if kind == "instagram":
         if not segs:
             return None

@@ -25,7 +25,7 @@ class ConfigError(ValueError):
 DEFAULTS: dict = {
     "campaign": {"id": "campaign", "client": "", "timezone": "Asia/Kolkata", "country": "IN",
                  "start_date": "", "language": "en", "region": "in"},
-    "area": {"name": "", "center": None, "radius_km": 25.0},
+    "area": {"name": "", "aliases": [], "center": None, "radius_km": 25.0, "local_landline_prefixes": []},
     "plan": {"days": 30, "daily_target": 150, "order": "center_out", "min_cell_km": 1.0, "max_cell_km": 10.0,
              "split_threshold": 60, "finish_scheduled_part": True},
     "discovery": {"providers": ["gmaps", "places_api", "osm"], "max_pages": 3, "gmaps_interval_s": 4.0,

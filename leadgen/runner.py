@@ -346,7 +346,18 @@ class Runner:
             return bool(e["instagram_profile"]) and not self.http.breaker("instagram").is_open()
         return False
 
+    def _site_rejected(self, key: str, url: str) -> bool:
+        """True when this URL was already crawled for this place and turned out to be a hijacked domain."""
+        row = self.db.one("SELECT result FROM tasks WHERE key=?", (f"site:{key}:{url}"[:300],))
+        return bool(row and (jload(row["result"], {}) or {}).get("status") == "hijacked")
+
+    def _listing_phones(self, key: str) -> list[str]:
+        return [r["value"] for r in self.db.q("SELECT value FROM contacts WHERE place_key=? AND kind='phone' AND "
+                                              "source IN ('google_maps','places_api','osm')", (key,))]
+
     def _enqueue(self, kind: str, place_key: str, payload: dict, part_id=None, delay: float = 0.0):
+        if kind == "site" and "phones" not in payload:
+            payload = {**payload, "phones": self._listing_phones(place_key)}
         # Band 0: the day's first ~target leads are enriched before surplus/backlog (band 1),
         # so each day's batch gets complete contact details quickly.
         band = 0 if self._qualified_today() < self.target * 1.2 else 1
@@ -604,13 +615,15 @@ class Runner:
         kind = t["kind"]
         if kind == "site":
             return crawl_site(self.http, p["url"], p["name"], max_pages=int(self.cfg["enrich"]["max_pages_per_site"]),
-                              region=self.region, interval=float(self.cfg["enrich"]["site_interval_s"]))
+                              region=self.region, interval=float(self.cfg["enrich"]["site_interval_s"]),
+                              known_phones=tuple(p.get("phones") or ()))
         if kind == "social":
             return social_lookup(self.search, p["name"], p.get("area_short") or self._short_area(p.get("area", "")), self.city,
-                                 kinds=tuple(p.get("kinds") or ("instagram", "facebook")), want_website=bool(p.get("want_website")))
+                                 kinds=tuple(p.get("kinds") or ("instagram", "facebook")), want_website=bool(p.get("want_website")),
+                                 home_extra=self._home_terms(p.get("area", "")))
         if kind == "li":
             return social_lookup(self.search, p["name"], self._short_area(p.get("area", "")), self.city, kinds=("linkedin",),
-                                 platform_word="linkedin")
+                                 platform_word="linkedin", home_extra=self._home_terms(p.get("area", "")))
         if kind == "insta":
             return fetch_profile(self.http, p["handle"])
         raise ValueError(f"unknown task kind {kind}")
@@ -618,6 +631,11 @@ class Runner:
     @staticmethod
     def _short_area(area: str) -> str:
         return area.split(",")[-1].strip() if area else ""
+
+    def _home_terms(self, area: str) -> list[str]:
+        """Names of the business's location that count as evidence when a profile mentions them."""
+        parts = [a.strip() for a in (area or "").split(",") if len(a.strip()) >= 4]
+        return parts + [a for a in self.cfg["area"].get("aliases", []) if a]
 
     def _harvest(self, inflight: dict, block: bool, timeout: float = 0.0):
         if not inflight:
@@ -695,7 +713,14 @@ class Runner:
             if self.db.add_contact(key, c.kind, c.value, label=c.label, source=c.source, source_url=c.source_url,
                                    confidence=c.confidence, evidence=c.evidence):
                 added += 1
-        if res.description and not place["description"]:
+        if res.status == "hijacked":
+            # The listed domain now belongs to a spam site: don't show it as the business's website.
+            site_url = jload(t["payload"], {}).get("url", "")
+            if place["website"] and normalize_url(place["website"]) == normalize_url(site_url):
+                self.db.update_place(key, website="")
+                self.db.mark_dirty(key)
+            log.info("website of %s looks hijacked (%s) - ignored", place["name"], site_url)
+        if res.description and not place["description"] and res.owned:
             self.db.update_place(key, description=res.description[:300])
             self.db.mark_dirty(key)
         if res.status == "error" and t["attempts"] < 1:
@@ -704,7 +729,8 @@ class Runner:
             self.db.complete(t["id"], {"status": res.status, "pages": len(res.pages), "contacts_added": added,
                                        "name_match": round(res.name_match, 2), "error": res.error})
         self.stats[f"site_{res.status}"] += 1
-        self._after_contacts(place, want_website=res.status in ("aggregator", "social", "error", "blocked_robots", "skipped"))
+        self._after_contacts(place, want_website=res.status in ("aggregator", "social", "error", "blocked_robots", "skipped", "hijacked")
+                             or not res.owned)
 
     def _after_contacts(self, place, want_website: bool = False):
         """Queue the next useful step for this place."""
@@ -726,12 +752,24 @@ class Runner:
         if res.results_seen == 0 and not self.search.available():
             self.db.defer(t["id"], 12 * 3600, "web search unavailable")
             return
+        accepted = set()
         for kind, m in res.matches.items():
-            self.db.add_contact(key, kind, m.url, label=f"name match {m.score:.2f}", source="search",
-                                source_url=m.url, confidence="medium", evidence=f"{m.engine} result: {m.title}"[:250])
+            # The account the business itself lists (Maps, its website) wins; search only fills gaps.
+            own = {r["value"] for r in self.db.q(
+                "SELECT value FROM contacts WHERE place_key=? AND kind=? AND confidence!='low' AND source IN "
+                "('google_maps','website','jsonld','places_api','osm','instagram')", (key, kind))}
+            conf, label = "medium", f"name match {m.score:.2f}"
+            if m.strength != "strong":
+                conf, label = "low", label + ", name too common to confirm"
+            if own and m.url not in own:
+                conf, label = "low", label + ", differs from the account the business lists"
+            self.db.add_contact(key, kind, m.url, label=label, source="search", source_url=m.url, confidence=conf,
+                                evidence=f"{m.engine} result: {m.title}"[:250])
+            if conf != "low":
+                accepted.add(kind)
             for ck, cv, cl in m.extra_contacts:
                 self.db.add_contact(key, ck, cv, label=cl, source="search", source_url=m.url, confidence="low", evidence=m.title[:200])
-        if res.website and not place["website"]:
+        if res.website and not place["website"] and not self._site_rejected(key, res.website.url):
             self.db.update_place(key, website=res.website.url)
             self.db.mark_dirty(key)
             if self.cfg["enrich"]["website"]:
@@ -739,7 +777,7 @@ class Runner:
                                             "found_by": "search"}, place["part_id"])
         self.db.complete(t["id"], {"results": res.results_seen, "found": sorted(res.matches), "website": bool(res.website),
                                    "query": res.query})
-        if "instagram" in res.matches and self.cfg["enrich"]["instagram_profile"] and not self._have(key, "email"):
+        if "instagram" in accepted and self.cfg["enrich"]["instagram_profile"] and not self._have(key, "email"):
             handle = handle_from_url(res.matches["instagram"].url)
             if handle:
                 self._enqueue("insta", key, {"handle": handle, "name": place["name"], "from": "search"}, place["part_id"])
@@ -762,7 +800,7 @@ class Runner:
                                 confidence="high" if how == "profile-field" else "medium", evidence=how)
         if prof.external_url and not place["website"]:
             web = normalize_url(prof.external_url)
-            if web and not canonical_social(web) and (not is_aggregator(web) or is_link_hub(web)):
+            if web and not canonical_social(web) and (not is_aggregator(web) or is_link_hub(web)) and not self._site_rejected(key, web):
                 self.db.update_place(key, website=web)
                 self.db.mark_dirty(key)
                 self._enqueue("site", key, {"url": web, "name": place["name"], "area": place["area"] or "", "found_by": "instagram"},

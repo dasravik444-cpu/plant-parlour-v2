@@ -164,7 +164,8 @@ def parse_business(biz: list) -> Place | None:
     status_text = m_closed.group(1) if m_closed else ""
     rating = _num(_g(biz, 4, 7))
     reviews = _num(_g(biz, 4, 8))
-    description = _s(_g(biz, 32, 1, 1)) or (tag if tag and tag != name and not tag.isupper() else "")
+    tag_ok = tag and tag != name and not tag.isupper() and len(tag) > 2 and not re.match(r"^[$₹€£]\s?\d|^\d", tag)
+    description = _s(_g(biz, 32, 1, 1)) or (tag if tag_ok else "")   # (the tag is sometimes a price: "$13")
     link = _s(_g(biz, 27))
     key = f"g:{place_id}" if place_id else f"gd:{data_id}"
     maps_url = link if link.startswith("https://") else ""

@@ -14,6 +14,8 @@ start_date = ""
 
 [area]
 name = "Kolkata"
+aliases = ["Calcutta"]        # other names of the city (a profile mentioning them counts as local)
+local_landline_prefixes = ["+913"]   # West Bengal landlines; others (e.g. +91 11 Delhi) are flagged as booking-platform lines
 center = [22.5726, 88.3639]   # latitude, longitude
 radius_km = 100
 
@@ -43,7 +45,12 @@ exclude_chains = [
   "domino", "pizza hut", "kfc", "mcdonald", "burger king", "subway", "starbucks", "cafe coffee day", "ccd",
   "barista", "costa coffee", "chaayos", "wow! momo", "wow momo", "taco bell", "baskin robbins", "keventers",
   "mad over donuts", "dunkin", "haldiram", "behrouz", "faasos", "oven story", "la pino", "naturals ice cream",
-  "the belgian waffle", "theobroma", "chai point", "tim hortons", "krispy kreme", "oyo", "fabhotel", "treebo",
+  "the belgian waffle", "theobroma", "chai point", "tim hortons", "krispy kreme",
+  # hotel networks (OYO's other brands - "SPOT ON 83258 Hotel X" - are recognised automatically)
+  "oyo", "fabhotel", "treebo",
+  # national interior-design and coworking brands (central purchasing)
+  "homelane", "livspace", "designcafe", "awfis", "wework", "regus", "smartworks", "indiqube", "91springboard",
+  "cowrks", "innov8",
 ]
 exclude_name_words = []
 

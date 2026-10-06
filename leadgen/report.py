@@ -6,7 +6,7 @@ import os
 from datetime import date, timedelta
 
 from .db import DB
-from .enrich.phones import display_phone
+from .enrich.phones import display_phone, refine_phone_label
 from .planner import localities_seen
 from .quality import is_aggregator, lead_priority
 from .sheets import LEAD_COLUMNS, PLAN_COLUMNS
@@ -24,13 +24,15 @@ def lead_id(no: int | None) -> str:
 
 def lead_row(db: DB, p, cfg) -> dict:
     contacts = db.contacts_for(p["key"])
+    local_prefixes = cfg["area"].get("local_landline_prefixes") or []
     good: dict[str, list[str]] = {k: [] for k in KIND_ORDER}
     weak: list[str] = []
     sources: dict[str, set] = {}
     for c in contacts:
         kind, value = c["kind"], c["value"]
         if kind in ("phone", "whatsapp") and value.startswith("+"):
-            shown = display_phone(value) + (f" ({c['label']})" if c["label"] and kind == "phone" else "")
+            label = refine_phone_label(value, c["label"], local_prefixes) if kind == "phone" else ""
+            shown = display_phone(value) + (f" ({label})" if label else "")
         else:
             shown = value
         if c["confidence"] == "low":

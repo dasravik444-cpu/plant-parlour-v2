@@ -46,6 +46,26 @@ def parse_phone(raw: str, region: str = "IN") -> tuple[str, str] | None:
     return e164, label
 
 
+def refine_phone_label(e164: str, label: str, local_landline_prefixes) -> str:
+    """Display label using the campaign's local landline prefixes (e.g. ["+913"] for West Bengal).
+
+    In India libphonenumber calls some mobile ranges "mobile/landline" because a few far-away STD
+    codes overlap them; a 6-9 number that is not a local landline is a mobile here. A landline from
+    another region (+91 11 Delhi, +91 22 Mumbai...) on a local business is usually a booking
+    platform's call-centre line."""
+    if not local_landline_prefixes or not e164.startswith("+91"):
+        return label
+    parts = [x.strip() for x in (label or "").split(",") if x.strip()]
+    if not parts:
+        return label
+    local = any(e164.startswith(p) for p in local_landline_prefixes)
+    if parts[0] == "mobile/landline" and not local and e164[3:4] in "6789":
+        parts[0] = "mobile"
+    elif parts[0] == "landline" and not local:
+        parts[0] = "landline outside the area, often a booking-platform line"
+    return ", ".join(parts)
+
+
 def display_phone(e164: str) -> str:
     try:
         return phonenumbers.format_number(phonenumbers.parse(e164, None), PhoneNumberFormat.INTERNATIONAL)

@@ -1,8 +1,9 @@
 """Website agent: crawl a business's own site (homepage + a few contact/about pages) for contact routes."""
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass, field
-from urllib.parse import urlsplit, urlunsplit
+from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
 from ..net import BreakerOpen, DeadlineReached, FetchError, Http, NetworkDown
 from ..quality import is_aggregator, is_link_hub, name_score
@@ -10,6 +11,14 @@ from ..util import get_logger
 from .extract import Found, canonical_social, extract_page, host_of, rank_contact_links, registrable
 
 log = get_logger("website")
+
+# Expired business domains are often taken over by gambling/spam sites while Google Maps still
+# lists them. Such a site's phones and social links belong to the spammer, not the business.
+SPAM_MARKERS = re.compile(
+    r"\b(slot\s?gacor|situs\s+slot|slot\s+online|judi\s+online|togel|sbobet|casino\s+online|online\s+casino|"
+    r"rtp\s+slot|agen\s+slot|bandar\s+(?:togel|slot|judi)|poker\s+online|maxwin|slot88|slot777|scatter\s+hitam|"
+    r"sports?\s+betting|bet365|1xbet|satta\s+matka|link\s+alternatif)\b", re.I)
+TRACKING_PARAMS = re.compile(r"^(utm_[a-z]+|gclid|fbclid|gbraid|wbraid|msclkid|srsltid|_ga|mc_[a-z]+|ref|igshid)$", re.I)
 
 
 @dataclass
@@ -25,7 +34,7 @@ class Contact:
 
 @dataclass
 class SiteResult:
-    status: str                     # ok | skipped | blocked_robots | error | social | aggregator
+    status: str                     # ok | skipped | blocked_robots | error | social | aggregator | hijacked
     contacts: list[Contact] = field(default_factory=list)
     pages: list[str] = field(default_factory=list)
     description: str = ""
@@ -33,6 +42,7 @@ class SiteResult:
     name_match: float = 0.0
     error: str = ""
     final_url: str = ""
+    owned: bool = True     # False: nothing ties the site to this business (contacts kept as unverified)
 
 
 def normalize_url(url: str) -> str:
@@ -46,7 +56,8 @@ def normalize_url(url: str) -> str:
     parts = urlsplit(url)
     if parts.scheme not in ("http", "https") or not parts.hostname:
         return ""
-    return urlunsplit((parts.scheme, parts.netloc.lower(), parts.path or "/", parts.query, ""))
+    query = urlencode([(k, v) for k, v in parse_qsl(parts.query, keep_blank_values=True) if not TRACKING_PARAMS.match(k)])
+    return urlunsplit((parts.scheme, parts.netloc.lower(), parts.path or "/", query, ""))
 
 
 def _confidence(f: Found, name_ok: bool, multi_location: bool) -> str:
@@ -59,7 +70,9 @@ def _confidence(f: Found, name_ok: bool, multi_location: bool) -> str:
 
 
 def crawl_site(http: Http, url: str, business_name: str, *, max_pages: int = 4, region: str = "IN",
-               interval: float = 2.0) -> SiteResult:
+               interval: float = 2.0, known_phones: tuple | list = ()) -> SiteResult:
+    """known_phones: the business's phone numbers from its listing (E.164). A site whose name does
+    not match the business still counts as its own when it shows one of these numbers."""
     url = normalize_url(url)
     if not url:
         return SiteResult(status="skipped", error="no usable URL")
@@ -125,6 +138,13 @@ def crawl_site(http: Http, url: str, business_name: str, *, max_pages: int = 4, 
         elif registrable(final_host) != registrable(site_host):
             continue  # left the site
         is_contact_page = len(res.pages) > 0
+        if not res.pages:
+            head = r.text[:150_000]
+            title_m = re.search(r"<title[^>]*>(.*?)</title>", head, re.I | re.S)
+            title_spam = bool(title_m and SPAM_MARKERS.search(title_m.group(1)))
+            if title_spam or len({m.group(0).lower() for m in SPAM_MARKERS.finditer(head)}) >= 2:
+                return SiteResult(status="hijacked", final_url=r.url,
+                                  error="the listed website now shows unrelated gambling/spam content")
         pe = extract_page(r.text, r.url, region=region, contact_page=is_contact_page)
         res.pages.append(r.url)
         if pe.redirect_to_social:
@@ -148,10 +168,19 @@ def crawl_site(http: Http, url: str, business_name: str, *, max_pages: int = 4, 
     res.name_match = max([name_score(business_name, t) for t in titles if t] + [name_score(business_name, "", handle=domain_core)])
     name_ok = res.name_match >= 0.6
     distinct_phones = {v for (k, v) in found if k == "phone"}
+    on_site_numbers = {v for (k, v) in found if k in ("phone", "whatsapp")}
+    res.owned = name_ok or bool(on_site_numbers & set(known_phones or ()))
+    if not res.owned:
+        res.description = ""    # e.g. a parent company's site: its description is not this business's
     multi_location = multi_phone_pages > 0 or len(distinct_phones) >= 6
+    home_cc = _country_prefix(region)
     for (kind, value), (f, page_url) in found.items():
         conf = _confidence(f, name_ok, multi_location)
         label = f.label
+        if not res.owned:
+            conf, label = "low", (label + ",site may belong to another business").strip(",")
+        if kind in ("phone", "whatsapp") and home_cc and not value.startswith(home_cc):
+            conf, label = "low", (label + ",foreign number").strip(",")
         if kind == "email":
             from .emails import email_label, suspicious_email
 
@@ -168,3 +197,13 @@ def crawl_site(http: Http, url: str, business_name: str, *, max_pages: int = 4, 
         res.status = "error"
         res.error = res.error or "no pages fetched"
     return res
+
+
+def _country_prefix(region: str) -> str:
+    try:
+        import phonenumbers
+
+        cc = phonenumbers.country_code_for_region((region or "").upper())
+        return f"+{cc}" if cc else ""
+    except Exception:  # noqa: BLE001
+        return ""

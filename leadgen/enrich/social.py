@@ -11,7 +11,7 @@ import re
 from dataclasses import dataclass, field
 from urllib.parse import urlsplit
 
-from ..quality import is_aggregator, mentions_other_city, name_score
+from ..quality import is_aggregator, match_strength, mentions_other_city, name_score
 from .emails import find_emails_in_text
 from .extract import canonical_social, registrable
 from .phones import find_phones_in_text
@@ -38,6 +38,7 @@ class SocialMatch:
     engine: str
     query: str = ""
     extra_contacts: list = field(default_factory=list)   # [(kind, value, label)] from the result snippet
+    strength: str = "strong"     # weak = name matches but too generic to be sure (shown as unverified)
 
 
 @dataclass
@@ -68,7 +69,7 @@ def _snippet_contacts(snippet: str) -> list:
 def best_match(kind: str, business: str, results: list[Result], home_terms: list[str], threshold: float = 0.75) -> SocialMatch | None:
     best = None
     for r in results:
-        canon = canonical_social(r.url)
+        canon = canonical_social(r.url, profile_only=True)
         if not canon or canon[0] != kind:
             continue
         if kind == "linkedin" and "/in/" in canon[1]:
@@ -81,7 +82,8 @@ def best_match(kind: str, business: str, results: list[Result], home_terms: list
         if mentions_other_city(r.title + " " + r.snippet, home_terms):
             score -= 0.3
         if best is None or score > best.score:
-            best = SocialMatch(kind, canon[1], round(score, 3), r.title[:150], r.engine, extra_contacts=_snippet_contacts(r.snippet))
+            best = SocialMatch(kind, canon[1], round(score, 3), r.title[:150], r.engine, extra_contacts=_snippet_contacts(r.snippet),
+                               strength=match_strength(business, name, handle, r.title + " " + r.snippet, home_terms))
     if best and best.score >= threshold:
         return best
     return None
@@ -106,11 +108,14 @@ def find_website(business: str, results: list[Result], home_terms: list[str]) ->
 
 
 def social_lookup(search: WebSearch, business: str, locality: str, city: str, kinds=("instagram", "facebook"),
-                  want_website: bool = False, platform_word: str = "instagram", threshold: float = 0.75) -> LookupResult:
+                  want_website: bool = False, platform_word: str = "instagram", threshold: float = 0.75,
+                  home_extra: tuple | list = ()) -> LookupResult:
+    """home_extra: more names of the business's location (area parts, city aliases) that count as
+    evidence when a profile mentions them."""
     place_hint = city if not locality or locality.lower() in city.lower() else f"{locality} {city}"
     query = f'"{business}" {place_hint} {platform_word}'.strip()
     results = search.search(query)
-    home = [city, locality]
+    home = [city, locality, *[h for h in home_extra if h]]
     matches = {}
     for kind in kinds:
         m = best_match(kind, business, results, home, threshold)
