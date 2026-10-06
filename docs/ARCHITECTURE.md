@@ -30,7 +30,8 @@
 | Agent | Module | Input → output |
 |---|---|---|
 | Planner | `planner.py`, `geo.py`, `providers/osm.py` | config → parts, search squares, `search` tasks |
-| Discovery | `providers/overture.py` (open-data mode, default), `osm.py`; `gmaps.py`, `places_api.py` (standard mode) | square + category → places |
+| Discovery | `providers/overture.py` (open-data/hybrid, default), `osm.py`; `gmaps.py`, `places_api.py` (standard mode) | square + category → places |
+| API enrichment | `providers/fsq.py` (optional, key-gated) | lead → official Foursquare phone/website/socials |
 | Quality | `quality.py`, `runner._ingest` | places → kept / excluded (closed, chain, off-category, duplicate, outside area) |
 | Website | `enrich/website.py`, `enrich/extract.py` | site → emails, phones, WhatsApp, social links, description |
 | Social finder | `enrich/social.py`, `enrich/search.py` | business name → Instagram/Facebook/LinkedIn page, website |

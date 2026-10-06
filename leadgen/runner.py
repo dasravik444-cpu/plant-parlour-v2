@@ -36,6 +36,7 @@ from .providers.gmaps import GoogleMapsSearch
 from .providers.osm import Overpass
 from .providers.overture import SOURCE_URL as OVERTURE_URL
 from .providers.overture import OvertureStore
+from .providers.fsq import FoursquareAPI
 from .providers.places_api import PlacesAPI
 from .quality import is_aggregator, is_chain, is_link_hub, is_qualified, match_category, name_score
 from .report import contact_coverage, lead_row, markdown_summary, masked_samples, plan_rows
@@ -43,7 +44,7 @@ from .util import get_logger, jdump, jload, local_date, norm_text
 
 log = get_logger("runner")
 
-PRIORITY = {"site": 1, "social": 2, "insta": 3, "li": 4}
+PRIORITY = {"site": 1, "social": 2, "insta": 3, "li": 4, "api": 5}
 PROVIDER_SOURCE = {"gmaps": "google_maps", "places_api": "places_api", "osm": "osm", "overture": "overture"}
 LINKEDIN_CATEGORIES = {"interior_designer", "event_planner", "coworking", "banquet_venue", "hotel"}
 
@@ -82,7 +83,7 @@ class Runner:
     def __init__(self, cfg: Config, db: DB, *, budget_minutes: float | None = None, target: int | None = None,
                  use_sheets: bool = True, discovery: bool = True, max_searches: int | None = None,
                  http: Http | None = None, gmaps=None, search: WebSearch | None = None, sheets_factory=None,
-                 workers: int | None = None, now_fn=time.time, enrich: bool = True, overture=None):
+                 workers: int | None = None, now_fn=time.time, enrich: bool = True, overture=None, fsq=None):
         self.cfg, self.db = cfg, db
         rt = cfg["runtime"]
         self.budget_s = float(budget_minutes if budget_minutes is not None else rt["time_budget_minutes"]) * 60
@@ -95,6 +96,7 @@ class Runner:
         self.workers = int(workers or cfg["enrich"]["workers"])
         self._http_override, self._gmaps_override, self._search_override = http, gmaps, search
         self._overture_override = overture
+        self._fsq_override = fsq
         self.sheets_factory = sheets_factory
         self.now = now_fn
         self.stop_requested = False
@@ -133,6 +135,7 @@ class Runner:
         self.overpass = Overpass(self.http, timeout=90)
         self.overture = self._overture_override or OvertureStore(self.db, cfg)
         self.search = self._search_override or WebSearch(self.http, interval=float(cfg["enrich"]["search_interval_s"]))
+        self.fsq = self._fsq_override or FoursquareAPI(self.http)
         self.mx = MXChecker(enabled=bool(cfg["enrich"]["check_email_mx"]))
 
     def _install_signals(self):
@@ -338,7 +341,7 @@ class Runner:
     def _next_enrichment(self):
         if not self.enrich_enabled:
             return None
-        kinds = [k for k in ("site", "social", "insta", "li") if self._kind_enabled(k)]
+        kinds = [k for k in ("site", "social", "insta", "li", "api") if self._kind_enabled(k)]
         if not kinds:
             return None
         marks = ",".join("?" for _ in kinds)
@@ -353,6 +356,8 @@ class Runner:
             return bool(e["social_search"]) and self.search.available()
         if kind == "insta":
             return bool(e["instagram_profile"]) and not self.http.breaker("instagram").is_open()
+        if kind == "api":
+            return bool(e.get("api_enrich")) and self.fsq.available() and not self.http.breaker("fsq").is_open()
         return False
 
     def _site_rejected(self, key: str, url: str) -> bool:
@@ -643,6 +648,9 @@ class Runner:
             self._enqueue("social", key, {"name": name, "area": area, "kinds": social_kinds, "want_website": True}, part_id)
         if not website_only and e["social_search"] and "linkedin" in e["social_kinds"] and category in LINKEDIN_CATEGORIES:
             self._enqueue("li", key, {"name": name, "area": area}, part_id)
+        if not web and not website_only and e.get("api_enrich") and self.fsq.available():
+            self._enqueue("api", key, {"name": name, "lat": self.db.scalar("SELECT lat FROM places WHERE key=?", (key,)),
+                                       "lng": self.db.scalar("SELECT lng FROM places WHERE key=?", (key,))}, part_id)
 
     def _qualify(self, key: str):
         kinds = {r["kind"] for r in self.db.q("SELECT kind FROM contacts WHERE place_key=? AND confidence!='low'", (key,))}
@@ -676,6 +684,8 @@ class Runner:
                                  platform_word="linkedin", home_extra=self._home_terms(p.get("area", "")))
         if kind == "insta":
             return fetch_profile(self.http, p["handle"])
+        if kind == "api":
+            return self.fsq.enrich(p["name"], p["lat"], p["lng"])
         raise ValueError(f"unknown task kind {kind}")
 
     @staticmethod
@@ -746,6 +756,8 @@ class Runner:
             self._apply_social(t, place, res, p)
         elif kind == "insta":
             self._apply_insta(t, place, res, p)
+        elif kind == "api":
+            self._apply_api(t, place, res)
         self._qualify(key)
         self.stats[f"{kind}_done"] += 1
 
@@ -796,6 +808,45 @@ class Runner:
             handle = handle_from_url(insta["value"])
             if handle:
                 self._enqueue("insta", key, {"handle": handle, "name": place["name"], "from": insta["source"]}, place["part_id"])
+        self._maybe_api(place)
+
+    def _maybe_api(self, place) -> None:
+        """Queue an official Foursquare lookup once, for a lead still missing a website (fills gaps legally)."""
+        e = self.cfg["enrich"]
+        key = place["key"]
+        if not (e.get("api_enrich") and self.fsq.available()):
+            return
+        if place["website"] or self.db.one("SELECT 1 FROM tasks WHERE place_key=? AND kind='api'", (key,)):
+            return
+        self._enqueue("api", key, {"name": place["name"], "lat": place["lat"], "lng": place["lng"]}, place["part_id"])
+
+    def _apply_api(self, t: dict, place, res: list):
+        key = place["key"]
+        added = 0
+        for kind, value, conf, src_url, ev in res or []:
+            if kind == "phone":
+                parsed = parse_phone(value, self.region)
+                if not parsed:
+                    continue
+                kind, value = "phone", parsed[0]
+            elif kind == "website":
+                value = normalize_url(value)
+                s = canonical_social(value)
+                if s:
+                    kind, value = s
+                elif not value or (is_aggregator(value) and not is_link_hub(value)):
+                    continue
+                else:
+                    if not place["website"]:
+                        self.db.update_place(key, website=value)
+                        self.db.mark_dirty(key)
+                        if self.cfg["enrich"]["website"] and not self._site_rejected(key, value):
+                            self._enqueue("site", key, {"url": value, "name": place["name"], "area": place["area"] or "",
+                                                        "found_by": "foursquare"}, place["part_id"])
+                    continue
+            if self.db.add_contact(key, kind, value, label="", source="foursquare", source_url=src_url, confidence=conf, evidence=ev):
+                added += 1
+        self.db.complete(t["id"], {"added": added, "found": len(res or [])})
 
     def _apply_social(self, t: dict, place, res: LookupResult, p: dict):
         key = place["key"]

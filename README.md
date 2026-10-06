@@ -3,7 +3,8 @@
 An automated, multi-agent lead generation system. Every day it works through
 one part of a target area (pilot: **Kolkata, 100 km radius, 30 daily parts**),
 finds relevant businesses (cafes, restaurants, banquet halls, event planners,
-interior designers, landscapers, hotels, coworking spaces), collects their
+interior designers, landscapers, nurseries/florists, salons & spas, gyms,
+clinics, corporate offices, hotels, coworking spaces), collects their
 **real** contact routes and writes them to a Google Sheet.
 
 * **Follows the rules (default "open-data" mode).** Leads come only from data
@@ -11,8 +12,9 @@ interior designers, landscapers, hotels, coworking spaces), collects their
   (businesses' own Facebook pages via Meta, Microsoft, Foursquare...; CDLA-Permissive-2.0)
   and OpenStreetMap - plus each business's own website, crawled openly as
   *PlantParlourLeadBot* and only where its robots.txt allows. Nothing is
-  scraped from Google Maps, Google/Yahoo search, Instagram or Facebook. See
-  [Rules and licences](#rules-and-licences).
+  scraped from Google Maps, Google/Yahoo search, Instagram or Facebook. Two
+  opt-in modes go further - *hybrid* (adds web-search + Instagram enrichment)
+  and *standard* (adds Google Maps scraping) - see [Rules and licences](#rules-and-licences).
 * **No made-up data.** Every phone number, email, WhatsApp, Instagram, Facebook
   or LinkedIn entry was read from a public source and keeps the URL it came
   from (shown in the sheet's *Contact Sources* column). No AI model writes or
@@ -121,7 +123,7 @@ python -m leadgen export-csv --out leads.csv
 
 | Source | Status (tested 2026-10-06 from GitHub Actions) |
 |---|---|
-| Overture Maps open data (default source) | Works (tested 2026-10-06): 209,000 places in the 100 km circle, 73% with a phone, 40% with an email, 40% with a website. Updated monthly. Some listings are stale (old Facebook pages); places with low confidence are skipped. Coworking spaces are poorly covered (12). No ratings. |
+| Overture Maps open data (default source) | Works (tested 2026-10-06): ~30,000 relevant businesses in the 100 km circle across 13 categories, ~95% with a phone, ~60% with an email, ~98% with a Facebook page. Updated monthly. Some listings are stale; low-confidence places are skipped. No ratings. |
 | Google Maps search (standard mode only) | Works, more complete (ratings, coworking), but against Google's terms of service. Off by default. |
 | Business websites (email, phones, WhatsApp links, social links) | Works; about half of listings have a website. |
 | Web search for Instagram/Facebook/LinkedIn/website | Yahoo works (200+ lookups in a 19-minute run); DuckDuckGo rate-limits after about 1 query (slow backup). Matches must pass the accuracy rules; uncertain ones are marked unverified. |
@@ -130,6 +132,7 @@ python -m leadgen export-csv --out leads.csv
 | WhatsApp | Only numbers explicitly published as WhatsApp (wa.me links, "WhatsApp: ..." text). Mobile numbers are labelled *mobile*; WhatsApp registration cannot be verified without WhatsApp's API. |
 | OpenStreetMap | Used for planning and as a free fallback; public servers are often slow. |
 | Google Places API (official) | Not used: Google's terms forbid saving its names, addresses and phones in our own lists, even through the paid API. |
+| Foursquare Places API (official, optional) | Off unless `FOURSQUARE_API_KEY` is set. Fills missing website/phone/socials for a lead. Legal (official API), but Overture already includes Foursquare's data, so it adds little in India. Never returns e-mail. |
 
 ## Rules and licences
 
@@ -137,8 +140,11 @@ python -m leadgen export-csv --out leads.csv
   "copying and saving business names, addresses, or user reviews" - also through the official,
   paid Places API. So no tool can save Google Maps listings into a sheet within Google's rules.
   The default **open-data** mode therefore does not use Google at all (the sheet only contains a
-  Google Maps *search link* per business, which Google allows). `compliance.mode = "standard"`
-  in the config switches Google Maps and web-search scraping back on - only if you accept that.
+  Google Maps *search link* per business, which Google allows). Two opt-in modes in
+  `compliance.mode`: **hybrid** keeps open-data discovery but adds web-search and Instagram
+  enrichment for more contacts (those sites' terms discourage automation - a grey area);
+  **standard** also scrapes Google Maps. Turn either on only if you accept that tradeoff.
+  Google throttles data-centre IPs, so standard mode is best run from the tablet (home IP).
 * **Overture Maps** places are published under CDLA-Permissive-2.0 (and Apache-2.0 for some
   sources): they may be stored and used commercially. If you share the data with someone else
   (e.g. a client), include: *Contains data from the Overture Maps Foundation (CDLA-Permissive-2.0).*

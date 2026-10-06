@@ -40,7 +40,8 @@ Repository **dasravik444-cpu/plant-parlour-v2** > **Settings** > **Secrets and v
 | `GOOGLE_SERVICE_ACCOUNT_JSON` | the **entire content** of the new JSON key file (open it in a text editor, copy everything) |
 | `PP_SHEET_ID` | the sheet ID from step 1 |
 | `PP_STATE_KEY` | a long random password, e.g. six random words. **Save a copy in your password manager.** It encrypts the campaign memory; if it is lost, the campaign memory starts fresh (the leads already in the sheet are safe and are not duplicated). |
-| `GOOGLE_PLACES_API_KEY` *(optional)* | official Google Places API key, used only if Google Maps blocks the free method. Needs a billing account on Google Cloud, but the system stays below the free monthly cap (900 of 1,000 free calls). |
+| `GOOGLE_PLACES_API_KEY` *(optional, standard mode)* | official Google Places API key, used only in standard mode if Google Maps blocks the free method. |
+| `FOURSQUARE_API_KEY` *(optional)* | free Foursquare Places API key (<https://foursquare.com/developers>). When set, fills missing website/phone/social for leads. Optional - it adds little over the open data. |
 
 ## 3. Turn on the daily schedule
 
@@ -76,10 +77,16 @@ Edit `config/plant-parlour.toml` (on GitHub: open the file > pencil icon):
   removing **categories** or search words does not: the next run adds the new
   searches to every part (including finished ones) and drops removed ones.
 * `[compliance] mode`: `"open-data"` (default) uses only openly licensed data
-  (Overture Maps, OpenStreetMap) and the businesses' own websites, and follows
-  Google's and Meta's terms. `"standard"` also scrapes Google Maps and search
-  engines: more complete (ratings, coworking spaces), but against Google's
-  terms of service. Only switch if you accept that.
+  (Overture Maps, OpenStreetMap) and the businesses' own websites, within
+  Google's and Meta's terms. `"hybrid"` keeps that but also searches the web and
+  Instagram for more contacts. `"standard"` also scrapes Google Maps (ratings,
+  a few more places) - more complete but against Google's terms; run it from the
+  tablet, as Google throttles GitHub's data-centre IPs. Switch only if you accept
+  the tradeoff.
+* Adding/removing categories: the pilot now covers cafes, restaurants, banquet
+  halls, event planners, interior designers, landscapers, nurseries/florists,
+  salons & spas, gyms, clinics, corporate offices, hotels and coworking spaces.
+  Turn `real_estate` or `education` on (set `enabled = true`) for even more.
 * For a new city or client, copy the file (e.g. `config/client-b.toml`) and
   give it its own sheet. (One campaign per repository copy is simplest.) Set
   `aliases` (other names of the city) and `local_landline_prefixes` (the

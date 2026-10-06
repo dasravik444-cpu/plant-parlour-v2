@@ -183,17 +183,24 @@ def cmd_doctor(cfg, args) -> int:
         else:
             print(f"[{'OK' if sid else 'WARN'}] PP_SHEET_ID " + ("set" if sid else "not set (leads stay in the database only)"))
             print(f"[{'OK' if has_key else 'WARN'}] service-account key " + ("set" if has_key else "not set"))
-    if cfg.open_data:
+    mode = cfg["compliance"]["mode"]
+    if mode == "open-data":
         print("[OK] compliance mode: open-data (Overture Maps + OpenStreetMap + the businesses' own websites; "
               "no scraping of Google, search engines or Instagram)")
+    elif mode == "hybrid":
+        print("[OK] compliance mode: hybrid (open-data discovery + web search & Instagram for richer contacts; "
+              "no Google Maps scraping)")
+    else:
+        print("[WARN] compliance mode: standard (scrapes Google Maps and search engines - against Google's terms; "
+              "best run from the tablet)")
+        print(f"[INFO] GOOGLE_PLACES_API_KEY {'set' if os.environ.get('GOOGLE_PLACES_API_KEY') else 'not set (optional)'}")
+    if mode in ("open-data", "hybrid"):
         try:
             import duckdb  # noqa: F401
             print("[OK] duckdb installed (reads Overture Maps open data)")
         except ImportError:
-            print("[WARN] duckdb not installed - open-data discovery falls back to OpenStreetMap (pip install duckdb)")
-    else:
-        print("[WARN] compliance mode: standard (scrapes Google Maps and search engines - against Google's terms)")
-        print(f"[INFO] GOOGLE_PLACES_API_KEY {'set (official fallback enabled)' if os.environ.get('GOOGLE_PLACES_API_KEY') else 'not set (optional)'}")
+            print("[WARN] duckdb not installed - discovery falls back to OpenStreetMap (pip install duckdb)")
+    print(f"[INFO] FOURSQUARE_API_KEY {'set (official enrichment enabled)' if os.environ.get('FOURSQUARE_API_KEY') else 'not set (optional)'}")
     if args.secrets_only:
         return 0 if ok else 1
     if os.path.exists(args.db):

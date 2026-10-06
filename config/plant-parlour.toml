@@ -32,9 +32,13 @@ finish_scheduled_part = true   # always finish the day's part, even after the ta
 # "open-data" (default): leads come only from openly licensed data - Overture Maps (businesses' own
 #   Facebook pages via Meta, Microsoft, Foursquare...; CDLA-Permissive-2.0) and OpenStreetMap - plus each
 #   business's own website, crawled openly as "PlantParlourLeadBot" and only where robots.txt allows.
-#   Nothing is scraped from Google Maps, Google/Yahoo search, Instagram or Facebook.
-# "standard": also scrapes Google Maps and web search engines. More complete (and ratings/reviews),
-#   but against Google's terms of service. Change only if you accept that.
+#   Nothing is touched on Google Maps, Google/Yahoo search, Instagram or Facebook. Fully within terms.
+# "hybrid": same open-data discovery, but ALSO searches the web (Yahoo) for each business's Instagram/
+#   Facebook/LinkedIn and reads Instagram bios. More complete contacts; no Google Maps scraping. The
+#   search engines' and Instagram's terms discourage automated access, so this is a grey area.
+# "standard": ALSO scrapes Google Maps (ratings, a few more places) and web search. Most complete, but
+#   against Google's terms of service. Best run from the tablet (home IP) - Google throttles data-centre
+#   IPs like GitHub's. Turn this on only if you, as the owner, accept the terms-of-service tradeoff.
 mode = "open-data"
 
 [open_data]

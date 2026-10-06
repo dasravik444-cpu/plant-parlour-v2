@@ -58,6 +58,18 @@ def store(db, cfg, rows=ROWS, release="2026-09-23.1", calls=None):
     return OvertureStore(db, cfg, fetcher=fetcher, release_fn=lambda: release)
 
 
+def test_compliance_modes_shape_the_pipeline():
+    assert make_config(compliance={"mode": "open-data"})["discovery"]["providers"] == ["overture", "osm"]
+    od = make_config(compliance={"mode": "open-data"})
+    assert od["enrich"]["social_search"] is False and od["enrich"]["instagram_profile"] is False
+    hy = make_config(compliance={"mode": "hybrid"})
+    assert hy["discovery"]["providers"] == ["overture", "osm"]      # open-data discovery...
+    assert hy["enrich"]["social_search"] is True and hy["enrich"]["instagram_profile"] is True  # ...+ richer contacts
+    assert hy.open_data is False
+    st = make_config(compliance={"mode": "standard"}, discovery={"providers": ["gmaps", "places_api", "osm"]})
+    assert st["discovery"]["providers"] == ["gmaps", "places_api", "osm"] and st["enrich"]["social_search"] is True
+
+
 def test_category_mapping_and_exclusions(tmp_path):
     cfg = od_config()
     st = store(DB(str(tmp_path / "s.sqlite")), cfg)
@@ -197,3 +209,58 @@ def test_real_extract_query_on_a_file_with_overtures_layout(tmp_path):
     assert set(by) == {"Green Leaf Cafe", "Thai Spot"}
     g = by["Green Leaf Cafe"]
     assert g["phones"] == ["+919830012345"] and g["datasets"] == ["meta"] and g["locality"] == "Kolkata" and g["code"] == "cafe"
+
+
+def test_foursquare_enrichment_parses_and_name_matches(tmp_path):
+    import json
+    from leadgen.providers.fsq import FoursquareAPI
+
+    results = {"results": [
+        {"fsq_place_id": "abc", "name": "Green Leaf Cafe", "tel": "+91 98300 11111", "website": "https://greenleafcafe.in",
+         "social_media": {"facebook_id": "greenleafkol", "instagram": "@greenleaf.kol"}},
+        {"fsq_place_id": "zzz", "name": "Completely Different Bakery", "tel": "+91 90000 00000"}]}
+
+    def router(method, url, params, data):
+        assert "places-api.foursquare.com" in url
+        return (200, json.dumps(results), "application/json")
+    fsq = FoursquareAPI(FakeHttp(router), key="testkey")
+    got = {(k, v) for k, v, *_ in fsq.enrich("Green Leaf Cafe", 22.58, 88.42)}
+    assert ("phone", "+91 98300 11111") in got and ("website", "https://greenleafcafe.in") in got
+    assert ("facebook", "https://www.facebook.com/greenleafkol") in got
+    assert ("instagram", "https://www.instagram.com/greenleaf.kol/") in got
+    assert FoursquareAPI(FakeHttp(router), key="").available() is False
+    # a near-miss name is rejected
+    miss = {"results": [{"fsq_place_id": "x", "name": "Blue Orchid Restaurant", "tel": "+91 90000 00001"}]}
+    assert FoursquareAPI(FakeHttp(lambda *a: (200, json.dumps(miss), "application/json")), key="k").enrich("Green Leaf Cafe", 22.58, 88.42) == []
+
+
+def test_run_uses_foursquare_to_fill_a_missing_website(tmp_path):
+    import json
+    from leadgen.providers.fsq import FoursquareAPI
+
+    cfg = od_config()                                    # open-data config, but we hand it an fsq key via override
+    db = DB(str(tmp_path / "s.sqlite"))
+    fsq_resp = {"results": [{"fsq_place_id": "q", "name": "Brew Corner", "website": "https://brewcorner.in",
+                             "social_media": {"instagram": "brewcorner"}}]}
+    SITE = '<html><head><title>Brew Corner</title></head><body><a href="mailto:hi@brewcorner.in">mail</a></body></html>'
+
+    def world(method, url, params, data):
+        host = urlsplit(url).hostname or ""
+        if "foursquare.com" in host:
+            return (200, json.dumps(fsq_resp), "application/json")
+        if urlsplit(url).path == "/robots.txt":
+            return (404, "", "text/html")
+        if host == "brewcorner.in":
+            return (200, SITE, "text/html")
+        return (404, "", "text/html")
+    http = FakeHttp(world)
+    fsq = FoursquareAPI(http, key="testkey")
+    code, s = Runner(cfg, db, http=http, use_sheets=False, overture=store(db, cfg), fsq=fsq).run()
+    assert code == 0, s
+    bc = db.one("SELECT key FROM places WHERE name='Brew Corner'")
+    assert bc is not None
+    contacts = {(c["kind"], c["value"]): c for c in db.contacts_for(bc["key"])}
+    assert db.get_place(bc["key"])["website"] == "https://brewcorner.in/"        # Foursquare filled the website...
+    assert ("email", "hi@brewcorner.in") in contacts                            # ...which was then crawled for the email
+    assert ("instagram", "https://www.instagram.com/brewcorner/") in contacts
+    assert contacts[("instagram", "https://www.instagram.com/brewcorner/")]["source"] == "foursquare"

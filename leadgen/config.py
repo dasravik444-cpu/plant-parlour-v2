@@ -36,7 +36,8 @@ DEFAULTS: dict = {
                 "exclude_closed": True, "allow_unmatched_categories": False},
     "enrich": {"website": True, "max_pages_per_site": 4, "social_search": True,
                "social_kinds": ["instagram", "facebook", "linkedin"], "instagram_profile": True,
-               "check_email_mx": True, "workers": 6, "search_interval_s": 4.5, "site_interval_s": 2.0},
+               "check_email_mx": True, "workers": 6, "search_interval_s": 4.5, "site_interval_s": 2.0,
+               "api_enrich": True},
     "sheets": {"enabled": True, "spreadsheet_id": "", "leads_tab": "Leads", "plan_tab": "Plan",
                "report_tab": "Daily Report", "checkpoint_minutes": 20},
     "runtime": {"time_budget_minutes": 80, "use_curl_cffi": True, "safety_margin_minutes": 6},
@@ -119,13 +120,25 @@ def load_config(path: str) -> Config:
 
 
 def apply_compliance(cfg: Config) -> None:
-    """In open-data mode, switch off every source whose terms forbid automated collection or storage."""
-    if not cfg.open_data:
-        return
-    cfg["discovery"]["providers"] = list(OPEN_DATA_PROVIDERS)   # [discovery].providers applies to standard mode
-    cfg["enrich"]["social_search"] = False        # no scraping of search engines
-    cfg["enrich"]["instagram_profile"] = False    # no scraping of Instagram
-    cfg["runtime"]["use_curl_cffi"] = False        # no browser disguise: we crawl as a named bot
+    """Shape the pipeline to the chosen compliance mode.
+
+    open-data (default): only openly licensed data (Overture, OpenStreetMap) + the businesses' own
+        websites, crawled as a named bot. No Google, no search engines, no Instagram. Fully within terms.
+    hybrid: the same open-data discovery (reliable, complete) PLUS web-search and Instagram enrichment
+        for richer contacts (grey-area terms; no Google Maps scraping).
+    standard: adds Google Maps and web-search scraping (uses [discovery].providers as written).
+        More complete, but against Google's terms of service - the owner's explicit opt-in.
+    """
+    mode = cfg["compliance"]["mode"]
+    if mode == "open-data":
+        cfg["discovery"]["providers"] = list(OPEN_DATA_PROVIDERS)
+        cfg["enrich"]["social_search"] = False        # no scraping of search engines
+        cfg["enrich"]["instagram_profile"] = False    # no scraping of Instagram
+        cfg["runtime"]["use_curl_cffi"] = False        # no browser disguise: we crawl as a named bot
+    elif mode == "hybrid":
+        # Open-data discovery, but enrichment (website + web search for socials + Instagram) stays on.
+        cfg["discovery"]["providers"] = list(OPEN_DATA_PROVIDERS)
+    # standard: leave [discovery].providers and [enrich] exactly as written in the config.
 
 
 def validate(cfg: Config) -> None:
@@ -184,8 +197,8 @@ def validate(cfg: Config) -> None:
     for prov in cfg["discovery"]["providers"]:
         if prov not in ("gmaps", "places_api", "osm", "overture"):
             errors.append(f"unknown discovery provider '{prov}'")
-    if cfg["compliance"]["mode"] not in ("open-data", "standard"):
-        errors.append('compliance.mode must be "open-data" or "standard"')
+    if cfg["compliance"]["mode"] not in ("open-data", "hybrid", "standard"):
+        errors.append('compliance.mode must be "open-data", "hybrid" or "standard"')
     if not isinstance(cfg["enrich"]["workers"], int) or not 1 <= cfg["enrich"]["workers"] <= 16:
         errors.append("enrich.workers must be 1..16")
     if not 5 <= float(cfg["runtime"]["time_budget_minutes"]) <= 340:
