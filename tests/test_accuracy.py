@@ -47,7 +47,13 @@ def test_common_word_names_need_local_evidence():
     assert match_strength("Natural", "Natural", "natural", "Natural, Janbazar, Kolkata - healthy food", HOME) == "strong"
     assert match_strength("EMPIRE RESTAURANT & BAR", "Empire", "EMPIRE1950", "", HOME) == "weak"
     assert match_strength("Nutririch cafe", "Nutririch", "the.nutririch", "", HOME) == "strong"      # unusual word
-    assert match_strength("Ruby Kitchen", "The Ruby Kitchen", "the_ruby_kitchen", "", HOME) == "strong"
+    assert match_strength("Ruby Kitchen", "The Ruby Kitchen", "the_ruby_kitchen", "", HOME) == "weak"        # common word only
+    assert match_strength("Ruby Kitchen", "The Ruby Kitchen", "the_ruby_kitchen", "Ruby Kitchen, Kolkata", HOME) == "strong"
+    assert match_strength("Kzar Banquet", "Kzar Banquets", "kzar.banquets", "", HOME) == "strong"            # unusual word
+    assert match_strength("Jimmy's Restaurant and Bar", "Jimmy's Restaurant", "jimmys_restaurant", "", HOME) == "weak"   # first name
+    assert match_strength("Jimmy's Restaurant and Bar", "Jimmy's Restaurant", "jimmys_restaurant", "New Market, Kolkata", HOME) == "strong"
+    # a person who shares the restaurant's name is someone else, even if they live in Kolkata
+    assert match_strength("Alisha", "Alisha Mondal", "alisha.mondal2", "Alisha Mondal is on Facebook. Lives in Kolkata", HOME) == "weak"
     assert match_strength("The Street Cafe", "The Street Cafe", "officialthestreetcafe", "", HOME) == "weak"
     weak = best_match("instagram", "Natural", [R("Natural (@natural) • Instagram photos and videos", "https://www.instagram.com/natural/")], HOME)
     assert weak is not None and weak.strength == "weak"
@@ -68,6 +74,21 @@ def test_hijacked_domain_gives_nothing():
             '<a href="https://wa.me/6281262589513">wa</a><a href="https://www.instagram.com/bosmuda77/">ig</a></body></html>')
     res = crawl_site(FakeHttp(_site_router({"daawatrestaurant.org/": spam})), "https://daawatrestaurant.org/", "Dawat Restaurant")
     assert res.status == "hijacked" and res.contacts == []
+
+
+def test_listed_domain_forwarding_to_an_unrelated_site_is_dropped():
+    spam = ('<html><head><title>BOSMUDA77 Login</title></head><body><a href="https://wa.me/6281262589513">wa</a>'
+            '<a href="https://www.instagram.com/bosmuda77/">ig</a></body></html>')
+
+    def router(method, url, params, data):
+        parts = urlsplit(url)
+        if parts.path == "/robots.txt":
+            return (404, "", "text/html")
+        if parts.hostname == "daawatrestaurant.org":       # the transport followed a redirect to another domain
+            return (200, spam, "text/html", "https://bosmuda77.xyz/")
+        return (404, "", "text/html")
+    res = crawl_site(FakeHttp(router), "https://daawatrestaurant.org/", "Dawat Restaurant", known_phones=("+919831724018",))
+    assert res.status == "moved" and res.contacts == [] and "bosmuda77.xyz" in res.error
 
 
 def test_unrelated_site_contacts_are_unverified_unless_the_listing_phone_is_there():

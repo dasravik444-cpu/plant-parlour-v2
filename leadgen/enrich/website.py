@@ -34,7 +34,7 @@ class Contact:
 
 @dataclass
 class SiteResult:
-    status: str                     # ok | skipped | blocked_robots | error | social | aggregator | hijacked
+    status: str                     # ok | skipped | blocked_robots | error | social | aggregator | hijacked | moved
     contacts: list[Contact] = field(default_factory=list)
     pages: list[str] = field(default_factory=list)
     description: str = ""
@@ -170,6 +170,10 @@ def crawl_site(http: Http, url: str, business_name: str, *, max_pages: int = 4, 
     distinct_phones = {v for (k, v) in found if k == "phone"}
     on_site_numbers = {v for (k, v) in found if k in ("phone", "whatsapp")}
     res.owned = name_ok or bool(on_site_numbers & set(known_phones or ()))
+    if not res.owned and res.final_url and registrable(host_of(res.final_url)) != registrable(host_of(url)):
+        # The listed address now forwards to an unrelated site (expired or taken-over domain).
+        return SiteResult(status="moved", final_url=res.final_url, pages=res.pages, name_match=res.name_match,
+                          error=f"the listed website now forwards to an unrelated site ({host_of(res.final_url)})")
     if not res.owned:
         res.description = ""    # e.g. a parent company's site: its description is not this business's
     multi_location = multi_phone_pages > 0 or len(distinct_phones) >= 6

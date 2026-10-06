@@ -72,8 +72,38 @@ COMMON_NAME_WORDS = {
     "zaika", "swad", "rasoi", "khana", "annapurna", "lakshmi", "ganesh", "durga", "kali", "shiva", "krishna",
     "balaji", "sai", "om", "shree", "shri", "sri", "jai", "maa", "baba", "new", "natural", "lifestyle", "signature",
     "expressions", "impressions", "moments", "memories", "celebrations", "occasions", "glamour", "glory", "pride",
+    "hive", "loft", "nook", "bake", "jazz", "folk", "bold", "chic", "glow", "haze", "mint", "sage", "pepper", "olive",
+    "basil", "thyme", "wood", "woods", "stone", "rock", "iron", "steel", "glass", "brick", "hill", "view", "vista",
+    "oak", "pine", "palm", "fern", "moss", "ivy", "lime", "mango", "berry", "cherry", "peach", "plum", "coco", "choco",
+    "crust", "dough", "bread", "toast", "rice", "bowl", "wrap", "roll", "rolls", "momo", "momos", "wings", "fries",
+    "shake", "shakes", "juice", "soda", "beer", "wine", "malt", "hops", "grape", "salt", "tree", "hope", "love",
+    "faith", "grace", "peace", "unity", "zest", "vibe", "cove", "bay", "port", "dock", "deck", "roof", "rooftop",
+    "terrace", "patio", "yard", "court", "gate", "arch", "dome", "hall", "maple", "cedar", "birch", "aqua", "nova",
+    "luna", "sol", "terra", "verde", "bella", "dolce", "casa", "villa", "amore", "bon", "petit",
+}
+# First names used as brands ("Jimmy's", "Alisha") match many unrelated people and shops.
+COMMON_FIRST_NAMES = {
+    "raj", "ravi", "amit", "rahul", "rohit", "sumit", "anil", "sunil", "ajay", "vijay", "sanjay", "arjun", "mohan",
+    "sohan", "ram", "shyam", "gopal", "babu", "bapi", "raju", "pappu", "bunty", "golu", "monu", "sonu", "chotu",
+    "mithu", "rinku", "pintu", "tutu", "bablu", "dipu", "tapan", "swapan", "biswajit", "subrata", "partha", "arup",
+    "amar", "akbar", "anthony", "asif", "imran", "irfan", "salman", "aamir", "shahid", "javed", "rahim", "karim",
+    "ali", "hassan", "hussain", "abdul", "ahmed", "aziz", "farhan", "sameer", "zaid", "priya", "puja", "pooja",
+    "neha", "sonia", "alisha", "ayesha", "sana", "riya", "rhea", "isha", "tanya", "nisha", "rani", "radha", "meera",
+    "mamta", "rina", "tina", "nina", "rita", "gita", "sita", "pinky", "dolly", "molly", "polly", "sweety", "babli",
+    "anjali", "kavya", "diya", "ananya", "shreya", "sneha", "megha", "payal", "sonali", "rupa", "mou", "mithi",
+    "jimmy", "johnny", "tony", "peter", "sam", "joe", "mike", "rocky", "bobby", "sunny", "danny", "lucy", "maria",
+    "anna", "sara", "sarah", "emma", "olivia", "sophia", "mia", "zara", "aryan", "ayaan", "kabir", "vivaan", "reyansh",
+    "ishaan", "advik", "dev", "neel", "rudra", "om", "sai", "jai", "veer", "arnav", "rishi", "aditya", "akash",
+    "vikas", "deepak", "manoj", "ashok", "suresh", "ramesh", "mahesh", "dinesh", "rajesh", "mukesh", "naresh",
+    "prakash", "santosh", "subhash", "kamal", "bimal", "nirmal", "shankar", "gautam", "rakesh", "uttam", "ather",
+    "ruby", "rose", "lily", "jasmine", "daisy", "pearl", "jenny", "kitty", "kiki", "coco", "nancy", "elena", "victoria",
 }
 _VOWELS = set("aeiouy")
+
+
+def _is_common(t: str) -> bool:
+    words = COMMON_NAME_WORDS | COMMON_FIRST_NAMES
+    return t in words or (t.endswith("s") and t[:-1] in words)
 _HANDLE_FILLERS = {"official", "the", "its", "iam", "im", "we", "my", "our", "real", "hq", "club", "world", "by",
                    "and", "co", "inc", "ltd", "pvt", "online", "live", "daily", "original", "team", "shop", "store",
                    "page", "kol", "kolkata", "calcutta", "cal", "ccu", "india", "in", "wb", "bengal", "west"}
@@ -227,25 +257,33 @@ def name_score(business: str, candidate: str, handle: str = "") -> float:
 def match_strength(business: str, candidate: str, handle: str, text: str, home_terms: list[str]) -> str:
     """How sure a matching search result is this business: 'strong' or 'weak'.
 
-    Strong: two distinctive words of the name match; or one unusual word (not a common English
-    word, 5+ letters); or one word plus another word of the name ("the_ruby_kitchen"); or the
-    profile mentions the business's city/locality. Everything else is weak (shown as unverified)."""
+    Strong: two distinctive words of the name match (not only common words like "Royal Garden"),
+    or the name has one distinctive word that is unusual (not a common English word, 4+ letters)
+    or that comes with the city/locality in the result - and the result has no extra words of
+    its own ("Alisha" vs "Alisha Mondal" / @alisha.mondal2 is someone else). Everything else is
+    weak and is stored as unverified."""
     m = name_match(business, candidate, handle)
+    homes = [norm_text(h) for h in home_terms if h and len(norm_text(h)) >= 3]
     hay = " " + norm_text(" ".join([text or "", candidate or "", re.sub(r"[^a-z0-9]+", " ", (handle or "").lower())])) + " "
-    home = any(" " + norm_text(h) + " " in hay for h in home_terms if h and len(norm_text(h)) >= 3) or " kol " in hay
+    h_alnum = re.sub(r"[^a-z0-9]", "", (handle or "").lower())
+    home = (any(" " + h + " " in hay for h in homes) or " kol " in hay or h_alnum.endswith("kol")
+            or any(len(h) >= 5 and h.replace(" ", "") in h_alnum for h in homes))
+    biz = tokens(business)
+    home_words = {w for h in homes for w in h.split()}
+    extras = [t for t in distinctive_tokens(candidate)
+              if t not in home_words and not t.isdigit() and not any(token_equiv(t, b) for b in biz)]
     if not m.dist:
-        return "strong" if home and m.score >= 0.95 else "weak"
+        return "strong" if home and m.score >= 0.95 and not extras else "weak"
     hits = [t for t in m.dist if t in m.covered]
-    if home:
-        return "strong"
-    if len(hits) >= 2 and (len(hits) == len(m.dist) or any(t not in COMMON_NAME_WORDS for t in hits)):
-        return "strong"
-    if len(hits) == 1:
-        t = hits[0]
-        if len(t) >= 5 and t not in COMMON_NAME_WORDS and not t.isdigit():
+    if len(hits) >= 2:
+        if home or len(hits) == len(m.dist) or any(not _is_common(t) for t in hits):
             return "strong"
-        others = {x for x in m.covered if x != t and len(x) >= 3 and x not in ("the", "and")}
-        if others:
+        return "weak"
+    if len(hits) == 1:
+        if extras or (handle and not m.handle_full):
+            return "weak"     # the profile is named after something more than this business's one word
+        t = hits[0]
+        if home or (len(t) >= 4 and not _is_common(t) and not t.isdigit()):
             return "strong"
     return "weak"
 

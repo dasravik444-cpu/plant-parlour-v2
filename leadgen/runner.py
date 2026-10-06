@@ -349,7 +349,7 @@ class Runner:
     def _site_rejected(self, key: str, url: str) -> bool:
         """True when this URL was already crawled for this place and turned out to be a hijacked domain."""
         row = self.db.one("SELECT result FROM tasks WHERE key=?", (f"site:{key}:{url}"[:300],))
-        return bool(row and (jload(row["result"], {}) or {}).get("status") == "hijacked")
+        return bool(row and (jload(row["result"], {}) or {}).get("status") in ("hijacked", "moved"))
 
     def _listing_phones(self, key: str) -> list[str]:
         return [r["value"] for r in self.db.q("SELECT value FROM contacts WHERE place_key=? AND kind='phone' AND "
@@ -713,13 +713,13 @@ class Runner:
             if self.db.add_contact(key, c.kind, c.value, label=c.label, source=c.source, source_url=c.source_url,
                                    confidence=c.confidence, evidence=c.evidence):
                 added += 1
-        if res.status == "hijacked":
-            # The listed domain now belongs to a spam site: don't show it as the business's website.
+        if res.status in ("hijacked", "moved"):
+            # The listed domain now belongs to a spam/unrelated site: don't show it as the business's website.
             site_url = jload(t["payload"], {}).get("url", "")
             if place["website"] and normalize_url(place["website"]) == normalize_url(site_url):
                 self.db.update_place(key, website="")
                 self.db.mark_dirty(key)
-            log.info("website of %s looks hijacked (%s) - ignored", place["name"], site_url)
+            log.info("website of %s ignored (%s): %s", place["name"], site_url, res.error)
         if res.description and not place["description"] and res.owned:
             self.db.update_place(key, description=res.description[:300])
             self.db.mark_dirty(key)
@@ -729,8 +729,8 @@ class Runner:
             self.db.complete(t["id"], {"status": res.status, "pages": len(res.pages), "contacts_added": added,
                                        "name_match": round(res.name_match, 2), "error": res.error})
         self.stats[f"site_{res.status}"] += 1
-        self._after_contacts(place, want_website=res.status in ("aggregator", "social", "error", "blocked_robots", "skipped", "hijacked")
-                             or not res.owned)
+        self._after_contacts(place, want_website=res.status in ("aggregator", "social", "error", "blocked_robots", "skipped", "hijacked",
+                                                                "moved") or not res.owned)
 
     def _after_contacts(self, place, want_website: bool = False):
         """Queue the next useful step for this place."""
