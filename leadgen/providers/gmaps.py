@@ -140,11 +140,14 @@ def parse_business(biz: list) -> Place | None:
     if not (place_id or data_id):
         return None
     cats = [c for c in (_g(biz, 13) or []) if isinstance(c, str)]
-    addr18 = _s(_g(biz, 18))
+    addr39 = _s(_g(biz, 39))            # full address without the name (2026 layout)
+    addr18 = _s(_g(biz, 18))            # "Name, full address"
     if addr18.startswith(name + ","):
         addr18 = addr18[len(name) + 1:].strip()
     parts = [p for p in (_g(biz, 2) or []) if isinstance(p, str)]
-    address = addr18 or ", ".join(parts)
+    address = addr39 or addr18 or ", ".join(parts)
+    area = _s(_g(biz, 14)) if isinstance(_g(biz, 14), str) else ""
+    city = _s(_g(biz, 166)) if isinstance(_g(biz, 166), str) else ""
     phone_local = _s(_g(biz, 178, 0, 0))
     phone_intl = ""
     for fmt in _g(biz, 178, 0, 1) or []:
@@ -153,23 +156,26 @@ def parse_business(biz: list) -> Place | None:
             phone_intl = val
             break
     website = real_url(_s(_g(biz, 7, 0)))
-    status_text = _s(_g(biz, 34, 4, 4))
-    state_enum = _s(_g(biz, 88, 0))
-    closed = bool(re.search(r"permanently closed|temporarily closed", status_text, re.I))
+    # Closure: Google shows "Permanently closed"/"Temporarily closed" in the hours/status blocks.
+    status_blob = " ".join(json.dumps(_g(biz, i) or "", ensure_ascii=False) for i in (34, 88, 203))
+    m_closed = re.search(r"(permanently closed|temporarily closed|closed permanently|closed temporarily)", status_blob, re.I)
+    tag = _s(_g(biz, 88, 0))            # short tagline, e.g. "Brunch" / "Iconic coffeehouse chain"
+    closed = bool(m_closed) or tag.upper() in ("CLOSED", "PERMANENTLY_CLOSED", "CLOSED_PERMANENTLY")
+    status_text = m_closed.group(1) if m_closed else ""
     rating = _num(_g(biz, 4, 7))
     reviews = _num(_g(biz, 4, 8))
-    description = _s(_g(biz, 32, 1, 1))
+    description = _s(_g(biz, 32, 1, 1)) or (tag if tag and tag != name and not tag.isupper() else "")
     link = _s(_g(biz, 27))
     key = f"g:{place_id}" if place_id else f"gd:{data_id}"
     maps_url = link if link.startswith("https://") else ""
     if not maps_url and place_id:
         maps_url = f"https://www.google.com/maps/search/?api=1&query={quote(name)}&query_place_id={place_id}"
     return Place(key=key, provider="gmaps", name=name, lat=float(lat), lng=float(lng), address=address,
-                 categories=cats, phone=phone_local, phone_intl=phone_intl, website=website,
+                 area=area, city=city, categories=cats, phone=phone_local, phone_intl=phone_intl, website=website,
                  rating=float(rating) if rating is not None else None,
                  reviews=int(reviews) if reviews is not None else None,
                  place_id=place_id, data_id=data_id, maps_url=maps_url, description=description,
-                 closed=closed, status_text=" | ".join(x for x in (status_text, state_enum) if x))
+                 closed=closed, status_text=status_text)
 
 
 def parse_search_response(text: str) -> tuple[list[Place], dict]:
@@ -227,8 +233,9 @@ class GoogleMapsSearch:
         meta.update({"status": r.status, "bytes": len(r.content), "offset": offset})
         return places, meta
 
-    def search(self, query: str, lat: float, lng: float, zoom: float, max_pages: int = 3) -> tuple[list[Place], dict]:
-        """Fetch up to `max_pages` pages of 20; stops when a page adds nothing new."""
+    def search(self, query: str, lat: float, lng: float, zoom: float, max_pages: int = 3, is_known=None) -> tuple[list[Place], dict]:
+        """Fetch up to `max_pages` pages of 20. Stops when a page is short, adds nothing new, or
+        (with `is_known`) consists mostly of businesses already in the database."""
         all_places: dict[str, Place] = {}
         pages = []
         for page in range(max_pages):
@@ -236,8 +243,11 @@ class GoogleMapsSearch:
             new = [p for p in places if p.key not in all_places]
             for p in new:
                 all_places[p.key] = p
-            meta["new"] = len(new)
+            unknown = [p for p in new if not (is_known and is_known(p.key))]
+            meta["new"], meta["unknown"] = len(new), len(unknown)
             pages.append(meta)
             if len(places) < 18 or not new:
+                break
+            if is_known is not None and len(unknown) < 0.3 * len(places):
                 break
         return list(all_places.values()), {"pages": pages, "count": len(all_places)}

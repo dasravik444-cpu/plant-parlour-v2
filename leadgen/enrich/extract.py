@@ -14,7 +14,8 @@ from .phones import find_phones_in_text, parse_phone, whatsapp_number_from_link
 SOCIAL_RESERVED = {
     "instagram": {"p", "reel", "reels", "tv", "explore", "stories", "accounts", "about", "developer", "legal", "direct",
                   "web", "share", "s", "sharer", "_u", "privacy", "terms", "help", "embed", "static", "graphql", "api",
-                  "challenge", "emails", "session", "login", "signup", "oauth", "ar", "lite", "topics"},
+                  "challenge", "emails", "session", "login", "signup", "oauth", "ar", "lite", "topics", "popular",
+                  "locations", "tags", "hashtag", "music", "audio", "threads", "invites", "nametag"},
     "facebook": {"sharer", "sharer.php", "share", "share.php", "dialog", "plugins", "tr", "login", "login.php", "groups",
                  "events", "watch", "help", "policies", "privacy", "hashtag", "legal", "ads", "business", "gaming",
                  "marketplace", "photo", "photo.php", "photos", "story.php", "permalink.php", "home.php", "l.php",

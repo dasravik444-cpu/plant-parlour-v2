@@ -1,0 +1,29 @@
+name: Tests
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - name: Install
+        run: |
+          pip install -r requirements.txt pytest
+          pip install -r requirements-extra.txt || true
+      - name: Offline test suite
+        run: python -m pytest -q
+      - name: Config and plan sanity (offline)
+        run: |
+          python -m leadgen doctor
+          python -m leadgen plan --offline --db /tmp/plan-check.sqlite | head -12

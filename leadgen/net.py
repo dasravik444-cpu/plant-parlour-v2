@@ -161,6 +161,16 @@ class Breaker:
                 self.open_until = time.time() + self.cooldown
                 log.warning("circuit breaker OPEN for %s (%s consecutive failures; last: %s)", self.name, self.failures, self.last_error)
 
+    def trip(self, error: str = ""):
+        """Open immediately (used when a single refusal is conclusive, e.g. a login wall)."""
+        with self._lock:
+            self.failures = max(self.failures, self.threshold)
+            self.last_error = error[:200] or self.last_error
+            if time.time() >= self.open_until:
+                self.total_failures += 1
+                log.warning("circuit breaker OPEN for %s (%s)", self.name, self.last_error)
+            self.open_until = time.time() + self.cooldown
+
     def snapshot(self) -> dict:
         return {"open": self.is_open(), "ok": self.total_success, "failed": self.total_failures, "last_error": self.last_error}
 

@@ -104,14 +104,16 @@ def parse_yahoo(html: str) -> list[Result]:
 
 
 class WebSearch:
-    ENGINES = ("ddg_html", "yahoo", "ddg_lite")
+    # Verified from GitHub Actions (2026-10): Yahoo answers steady automated queries; DuckDuckGo
+    # answers about one query and then rate-limits (HTTP 202), so it is only a slow backup.
+    ENGINES = ("yahoo", "ddg_html", "ddg_lite")
+    INTERVALS = {"yahoo": 6.0, "ddg_html": 60.0, "ddg_lite": 60.0}
 
-    def __init__(self, http: Http, interval: float = 6.0, jitter: float = 3.0, engines: tuple | None = None):
+    def __init__(self, http: Http, interval: float | None = None, jitter: float = 4.0, engines: tuple | None = None):
         self.http = http
-        self.interval, self.jitter = interval, jitter
+        self.base_interval, self.jitter = interval, jitter
         self.engines = list(engines or self.ENGINES)
         self.brave_key = os.environ.get("BRAVE_API_KEY", "").strip()
-        self._rr = 0
         self._lock = threading.Lock()
         self.stats = {e: {"ok": 0, "blocked": 0, "empty": 0, "error": 0} for e in self.engines + ["brave_api"]}
 
@@ -119,7 +121,8 @@ class WebSearch:
         return bool(self.brave_key) or any(not self.http.breaker("search:" + e).is_open() for e in self.engines)
 
     def _fetch(self, engine: str, query: str):
-        common = dict(service="search:" + engine, interval=self.interval, jitter=self.jitter, timeout=20, retries=0,
+        interval = max(self.base_interval or 0.0, self.INTERVALS.get(engine, 6.0))
+        common = dict(service="search:" + engine, interval=interval, jitter=self.jitter, timeout=20, retries=0,
                       block_statuses=(429, 403, 202))
         if engine == "ddg_html":
             r = self.http.post("https://html.duckduckgo.com/html/", data={"q": query, "kl": "in-en"}, **common)
@@ -141,12 +144,9 @@ class WebSearch:
                 for x in (data.get("web") or {}).get("results", []) if x.get("url")]
 
     def search(self, query: str) -> list[Result]:
-        """First healthy engine that answers wins. Returns [] if every engine is unavailable."""
-        with self._lock:
-            start = self._rr
-            self._rr = (self._rr + 1) % max(1, len(self.engines))
-        order = self.engines[start:] + self.engines[:start]
-        for engine in order:
+        """Engines are tried in order of reliability; the first healthy one that answers wins.
+        Returns [] if every engine is unavailable."""
+        for engine in self.engines:
             if self.http.breaker("search:" + engine).is_open():
                 continue
             try:

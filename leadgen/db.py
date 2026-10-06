@@ -68,7 +68,7 @@ CREATE TABLE IF NOT EXISTS places (
   norm_name TEXT NOT NULL,
   category TEXT,
   gcategories TEXT NOT NULL DEFAULT '[]',
-  address TEXT, lat REAL, lng REAL,
+  address TEXT, area TEXT, city TEXT, lat REAL, lng REAL,
   rating REAL, reviews INTEGER,
   website TEXT, maps_url TEXT, place_id TEXT, data_id TEXT,
   description TEXT,

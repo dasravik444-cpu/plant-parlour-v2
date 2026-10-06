@@ -22,7 +22,7 @@ days = 30                # split the circle into 30 daily parts ("auto" = estima
 daily_target = 150       # leads per day (a lead = a relevant business with at least one contact route)
 order = "center_out"     # work the dense city centre first, then move outwards
 min_cell_km = 1.0        # smallest search square (dense areas)
-max_cell_km = 10.0       # largest search square (rural areas)
+max_cell_km = 16.0       # largest search square (rural areas)
 split_threshold = 60     # split a square while it holds more than this many mapped businesses
 finish_scheduled_part = true   # always finish the day's part, even after the target is met
 
@@ -108,6 +108,7 @@ osm = ['["office"="event_management"]', '["craft"="caterer"]']
 key = "interior_designer"
 label = "Interior designer / Architect"
 queries = ["interior designer", "architect"]
+min_density = 2   # skip squares with almost no mapped businesses
 match = ["interior", "designer", "architect", "decor", "landscap", "design studio", "design agency"]
 osm = ['["office"="architect"]', '["shop"="interior_decoration"]', '["craft"="interior_designer"]']
 
@@ -122,6 +123,7 @@ osm = ['["tourism"="hotel"]', '["tourism"="resort"]', '["tourism"="guest_house"]
 key = "coworking"
 label = "Coworking / Office space"
 queries = ["coworking space"]
+min_density = 5
 match = ["coworking", "co-working", "shared office", "office space", "business center", "business centre", "virtual office"]
 osm = ['["amenity"="coworking_space"]', '["office"="coworking"]']
 

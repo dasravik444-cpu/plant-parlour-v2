@@ -12,6 +12,8 @@ class Place:
     lat: float | None = None
     lng: float | None = None
     address: str = ""
+    area: str = ""                # neighbourhood / locality label (e.g. "Action Area II, Rajarhat")
+    city: str = ""
     categories: list[str] = field(default_factory=list)
     phone: str = ""               # raw phone exactly as the provider showed it
     phone_intl: str = ""          # provider's international format, when given
