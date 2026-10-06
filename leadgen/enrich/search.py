@@ -107,7 +107,7 @@ class WebSearch:
     # Verified from GitHub Actions (2026-10): Yahoo answers steady automated queries; DuckDuckGo
     # answers about one query and then rate-limits (HTTP 202), so it is only a slow backup.
     ENGINES = ("yahoo", "ddg_html", "ddg_lite")
-    INTERVALS = {"yahoo": 6.0, "ddg_html": 60.0, "ddg_lite": 60.0}
+    INTERVALS = {"yahoo": 4.5, "ddg_html": 60.0, "ddg_lite": 60.0}
 
     def __init__(self, http: Http, interval: float | None = None, jitter: float = 4.0, engines: tuple | None = None):
         self.http = http

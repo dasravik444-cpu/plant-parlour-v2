@@ -120,16 +120,18 @@ def match_category(gcategories: list[str], query_category: str, categories: list
     labels = [norm_text(c) for c in gcategories or [] if c]
     if not labels:
         return None
-    best, best_len = None, 0
-    for cat in categories:
-        for word in cat.get("match", []):
-            if not word:
-                continue
-            if any(_word_hits(word, lab) for lab in labels):
-                n = len(norm_text(word.rstrip("*")))
-                if n > best_len or (n == best_len and cat["key"] == query_category):
-                    best, best_len = cat["key"], n
-    return best
+    # Google lists the primary category first: decide on the first label that matches anything.
+    for lab in labels:
+        best, best_len = None, 0
+        for cat in categories:
+            for word in cat.get("match", []):
+                if word and _word_hits(word, lab):
+                    n = len(norm_text(word.rstrip("*")))
+                    if n > best_len or (n == best_len and cat["key"] == query_category):
+                        best, best_len = cat["key"], n
+        if best:
+            return best
+    return None
 
 
 def domain_of(url: str) -> str:

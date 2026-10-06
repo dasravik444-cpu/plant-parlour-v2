@@ -36,7 +36,7 @@ DEFAULTS: dict = {
                 "exclude_closed": True, "allow_unmatched_categories": False},
     "enrich": {"website": True, "max_pages_per_site": 4, "social_search": True,
                "social_kinds": ["instagram", "facebook", "linkedin"], "instagram_profile": True,
-               "check_email_mx": True, "workers": 6, "search_interval_s": 6.0, "site_interval_s": 2.0},
+               "check_email_mx": True, "workers": 6, "search_interval_s": 4.5, "site_interval_s": 2.0},
     "sheets": {"enabled": True, "spreadsheet_id": "", "leads_tab": "Leads", "plan_tab": "Plan",
                "report_tab": "Daily Report"},
     "runtime": {"time_budget_minutes": 80, "use_curl_cffi": True, "safety_margin_minutes": 6},

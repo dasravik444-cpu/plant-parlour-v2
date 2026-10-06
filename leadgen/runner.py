@@ -330,7 +330,10 @@ class Runner:
         return False
 
     def _enqueue(self, kind: str, place_key: str, payload: dict, part_id=None, delay: float = 0.0):
-        seq = PRIORITY[kind] * 10**13 + int(self.now() * 1000)
+        # Band 0: the day's first ~target leads are enriched before surplus/backlog (band 1),
+        # so each day's batch gets complete contact details quickly.
+        band = 0 if self._qualified_today() < self.target * 1.2 else 1
+        seq = (band * 10 + PRIORITY[kind]) * 10**13 + int(self.now() * 1000)
         return self.db.enqueue(kind, f"{kind}:{place_key}:{payload.get('url') or payload.get('handle') or ''}"[:300], payload,
                                seq=seq, part_id=part_id, place_key=place_key, next_at=self.now() + delay)
 
@@ -826,5 +829,7 @@ class Runner:
             except OSError:
                 pass
         log.info("\n%s", md)
+        log.info("stats: %s", jdump({"run": dict(self.stats), "queue": self.db.task_counts(),
+                                     "health": {k: ("paused" if v["open"] else "ok") for k, v in self.http.breaker_report().items()}}))
         for line in masked_samples(self.db, self.today):
             log.info("sample lead: %s", line)

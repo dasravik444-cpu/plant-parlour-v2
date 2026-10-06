@@ -73,6 +73,18 @@ def normalize_email(raw: str) -> str | None:
     return e
 
 
+def suspicious_email(email: str) -> str:
+    """Reason an address as written is probably a typo (kept, but marked unverified)."""
+    local, _, domain = email.partition("@")
+    if domain.startswith("www."):
+        return "suspicious: 'www.' inside the address"
+    if re.search(r"\.(con|cmo|comm|om|cm|co\.on|inn)$", domain):
+        return "suspicious: misspelt domain ending"
+    if domain.count(".") >= 4:
+        return "suspicious: unusual domain"
+    return ""
+
+
 def email_label(email: str, site_domain: str = "") -> str:
     local, _, domain = email.partition("@")
     labels = []

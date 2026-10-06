@@ -1,0 +1,60 @@
+name: State persistence self-test
+
+# Proves the encrypted save -> upload -> list -> download -> decrypt -> integrity
+# chain used by the daily workflow, with dummy data and a throw-away key
+# (no secrets needed). Run it manually from the Actions tab.
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+env:
+  PP_STATE_KEY: "selftest-key-not-a-secret"
+  ART_NAME: pp-state-selftest
+
+jobs:
+  save:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install -r requirements.txt
+      - name: Create a dummy campaign state
+        run: python -m leadgen plan --offline --db state/leadgen.sqlite | head -3
+      - name: Encrypt
+        run: bash scripts/ci/state.sh pack
+      - uses: actions/upload-artifact@v4
+        with:
+          name: pp-state-selftest
+          path: state-out/pp-state.enc
+          retention-days: 1
+
+  restore:
+    needs: save
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install -r requirements.txt
+      - name: Download and decrypt
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: bash scripts/ci/state.sh restore
+      - name: Verify restored state
+        run: |
+          test -f state/leadgen.sqlite
+          python -m leadgen status --db state/leadgen.sqlite
+          python - <<'PY'
+          import sqlite3
+          n = sqlite3.connect("state/leadgen.sqlite").execute("select count(*) from parts").fetchone()[0]
+          assert n == 30, n
+          print("restored plan parts:", n, "- persistence chain OK")
+          PY

@@ -153,9 +153,13 @@ def crawl_site(http: Http, url: str, business_name: str, *, max_pages: int = 4, 
         conf = _confidence(f, name_ok, multi_location)
         label = f.label
         if kind == "email":
-            from .emails import email_label
+            from .emails import email_label, suspicious_email
 
             label = email_label(value, registrable(site_host))
+            why = suspicious_email(value)
+            if why:
+                # Published like this on the site, but probably undeliverable: keep it, as unverified.
+                conf, label = "low", (label + "," + why).strip(",")
         if multi_location and kind in ("phone", "whatsapp"):
             label = (label + ",multi-location site").strip(",")
         res.contacts.append(Contact(kind, value, "jsonld" if f.how == "jsonld" else "website", page_url, conf, label,

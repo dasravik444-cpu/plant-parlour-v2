@@ -55,7 +55,7 @@ social_kinds = ["instagram", "facebook", "linkedin"]
 instagram_profile = true
 check_email_mx = true
 workers = 6
-search_interval_s = 6.0
+search_interval_s = 4.5
 site_interval_s = 2.0
 
 [sheets]

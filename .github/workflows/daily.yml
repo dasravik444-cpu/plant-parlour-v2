@@ -1,13 +1,15 @@
 name: Daily lead generation
 
 # Runs every day by itself once the repository variable PP_ENABLED is "true"
-# (Settings > Secrets and variables > Actions > Variables). A second run in the
-# afternoon only does work if the morning run fell short (it exits quickly
-# otherwise). Manual runs: Actions tab > Daily lead generation > Run workflow.
+# (Settings > Secrets and variables > Actions > Variables). The afternoon and
+# evening runs continue unfinished work (searches of the day's part, then the
+# enrichment queue) and end quickly when nothing is left.
+# Manual runs: Actions tab > Daily lead generation > Run workflow.
 on:
   schedule:
-    - cron: "37 0 * * *"   # 06:07 IST
-    - cron: "37 8 * * *"   # 14:07 IST catch-up
+    - cron: "37 0 * * *"   # 06:07 IST  main run
+    - cron: "37 8 * * *"   # 14:07 IST  catch-up (continues the day's part if unfinished)
+    - cron: "37 14 * * *"  # 20:07 IST  enrichment shift (websites/Instagram/Facebook for the day's leads)
   workflow_dispatch:
     inputs:
       budget_minutes:
@@ -31,6 +33,9 @@ on:
         description: "Re-plan the area first (needed after changing area, days or categories; found leads are kept)"
         type: boolean
         default: false
+      maintainer_pubkey:
+        description: "Optional: base64 RSA public key - prints an ENCRYPTED sample of leads for a quality check"
+        default: ""
 
 permissions:
   contents: read
@@ -80,6 +85,11 @@ jobs:
           if [ -n "${{ inputs.max_searches }}" ]; then args+=(--max-searches "${{ inputs.max_searches }}"); fi
           if [ "${{ github.event_name }}" = "workflow_dispatch" ] && [ "${{ inputs.use_sheet }}" != "true" ]; then args+=(--no-sheets); fi
           python -m leadgen "${args[@]}"
+      - name: Encrypted lead sample (maintainer quality check)
+        if: always() && github.event_name == 'workflow_dispatch' && inputs.maintainer_pubkey != ''
+        env:
+          PUBKEY_B64: ${{ inputs.maintainer_pubkey }}
+        run: bash scripts/ci/encrypted_sample.sh
       - name: Save campaign state (encrypted)
         if: always() && env.PERSIST == 'true'
         run: bash scripts/ci/state.sh pack
