@@ -40,8 +40,7 @@ mode = "open-data"
 [open_data]
 min_confidence = 0.4     # Overture's 0-1 estimate that the place exists; lower = more but staler places
 refresh_days = 30        # re-download the area when Overture publishes a newer release (monthly)
-exclude_codes = ["internet_cafe", "event_photography_service", "photographer", "party_supply_store", "hostel",
-                 "nursery_and_gardening_store"]
+exclude_codes = ["internet_cafe", "event_photography_service", "photographer", "party_supply_store", "hostel"]
 
 [discovery]
 # standard mode only (open-data mode always uses ["overture", "osm"])
@@ -169,9 +168,65 @@ osm = ['["amenity"="coworking_space"]', '["office"="coworking"]']
 overture = ["coworking_space"]
 
 [[categories]]
+key = "nursery_florist"
+label = "Nursery / Florist (reseller)"
+queries = ["plant nursery", "florist"]
+min_density = 1
+match = ["nursery", "nurseries", "florist", "flower*", "garden center", "garden centre", "plant shop", "plant store"]
+osm = ['["shop"="garden_centre"]', '["shop"="florist"]']
+overture = ["nursery_and_gardening_store", "florist", "garden_center", "flower_shop"]
+
+[[categories]]
+key = "salon_spa"
+label = "Salon / Spa / Wellness"
+queries = ["beauty salon", "spa", "wellness centre"]
+min_density = 2
+match = ["salon", "spa", "beauty", "wellness", "hair", "nail", "makeup", "make-up", "barber", "aesthetic", "skin", "massage", "ayurveda", "unisex"]
+osm = ['["shop"="beauty"]', '["shop"="hairdresser"]', '["leisure"="spa"]']
+overture = ["beauty_salon", "hair_salon", "nail_salon", "spa", "day_spa", "barber", "skin_care_clinic", "massage", "beauty_service", "personal_or_beauty_service"]
+
+[[categories]]
+key = "gym"
+label = "Gym / Fitness"
+queries = ["gym", "fitness centre"]
+min_density = 2
+match = ["gym", "fitness", "yoga", "pilates", "crossfit", "zumba", "workout", "health club", "martial art"]
+osm = ['["leisure"="fitness_centre"]', '["leisure"="sports_centre"]']
+overture = ["gym", "fitness_center", "yoga_studio", "pilates_studio", "martial_arts_club", "dance_studio"]
+
+[[categories]]
+key = "clinic"
+label = "Clinic / Hospital"
+queries = ["clinic", "hospital"]
+min_density = 2
+match = ["clinic", "hospital", "dental", "dentist", "nursing home", "diagnostic", "polyclinic", "healthcare", "health care", "medical", "eye care", "physiotherapy", "ivf", "maternity"]
+osm = ['["amenity"="clinic"]', '["amenity"="hospital"]', '["amenity"="dentist"]', '["amenity"="doctors"]']
+overture = ["clinic", "hospital", "dentist", "doctor", "medical_clinic", "diagnostic_center", "physiotherapist", "eye_care_clinic", "hospital"]
+
+[[categories]]
+key = "office"
+label = "Corporate office"
+queries = ["corporate office", "company office"]
+min_density = 3
+match = ["office", "corporate", "headquarters", "head office", "software", "technologies", "consultancy", "consultants", "solutions", "enterprise", "limited", "pvt", "llp"]
+osm = ['["office"]']
+overture = ["corporate_or_business_office", "corporate_office", "advertising_agency", "software_company", "it_service"]
+
+[[categories]]
+key = "real_estate"
+label = "Real estate / Builder"
+enabled = false   # set to true to include builders and property offices (model flats, lobbies)
+queries = ["real estate developer", "property dealer"]
+min_density = 3
+match = ["real estate", "realtor", "realty", "builder", "developer", "construction", "property", "infrastructure", "estates", "projects", "housing", "group"]
+osm = ['["office"="estate_agent"]']
+overture = ["real_estate_agent", "real_estate_developer", "property_management", "real_estate_service", "construction_company"]
+
+[[categories]]
 key = "education"
 label = "School / College"
 enabled = false   # set to true to include schools and colleges
 queries = ["college", "school"]
 match = ["school", "college", "university", "institute", "academy"]
 osm = ['["amenity"="school"]', '["amenity"="college"]', '["amenity"="university"]']
+overture = ["school", "college_university", "university", "primary_school", "high_school", "preschool", "place_of_learning"]

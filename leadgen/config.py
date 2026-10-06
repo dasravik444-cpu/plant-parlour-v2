@@ -46,7 +46,7 @@ DEFAULTS: dict = {
     "compliance": {"mode": "open-data"},
     "open_data": {"min_confidence": 0.4, "refresh_days": 30,
                   "exclude_codes": ["internet_cafe", "event_photography_service", "photographer", "party_supply_store",
-                                    "hostel", "nursery_and_gardening_store"]},
+                                    "hostel"]},
 }
 
 OPEN_DATA_PROVIDERS = ("overture", "osm")

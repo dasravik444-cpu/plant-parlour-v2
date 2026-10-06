@@ -160,6 +160,35 @@ def overture_taxonomy(cfg):
          "codes used for places whose NAME says interior/banquet/coworking/decorator/event/architect")
 
 
+def overture_config(cfg):
+    """Count businesses per OUR category using the real OvertureStore mapping (end-to-end check)."""
+    import tempfile
+    from leadgen.db import DB
+    from leadgen.providers.overture import OvertureStore
+
+    db = DB(tempfile.mkstemp(suffix=".sqlite")[1])
+    st = OvertureStore(db, cfg)
+    print(f"\n--- downloading via OvertureStore (codes: {len(st.codes())})")
+    st.ensure()
+    total = db.scalar("SELECT COUNT(*) FROM open_places", default=0)
+    from leadgen.util import jload
+    counts = {}
+    for r in db.q("SELECT name, code, basic, emails, websites, phones, socials FROM open_places"):
+        hints = " ".join((jload(r["emails"], []) or []) + (jload(r["websites"], []) or []))
+        cat = st.category_for(r["code"] or "", r["basic"] or "", r["name"], hints)
+        if cat:
+            c = counts.setdefault(cat, {"n": 0, "phone": 0, "email": 0, "social": 0})
+            c["n"] += 1
+            c["phone"] += 1 if (jload(r["phones"], []) or []) else 0
+            c["email"] += 1 if (jload(r["emails"], []) or []) else 0
+            c["social"] += 1 if (jload(r["socials"], []) or []) else 0
+    print(f"stored {total} places; mapped to a category: {sum(c['n'] for c in counts.values())}")
+    print(f"{'category':22s} {'leads':>7s} {'phone':>7s} {'email':>7s} {'social':>7s}")
+    for k in sorted(counts, key=lambda x: -counts[x]['n']):
+        c = counts[k]
+        print(f"{k:22s} {c['n']:7d} {c['phone']:7d} {c['email']:7d} {c['social']:7d}")
+
+
 def overture_lookup(cfg):
     """Codes of specific places (quality checks of the category mapping)."""
     rel = [r for r in releases(OVERTURE) if re.match(r"\d{4}-\d{2}-\d{2}", r)][-1]
@@ -179,6 +208,9 @@ def overture_lookup(cfg):
 
 
 if __name__ == "__main__":
+    if len(sys.argv) > 2 and sys.argv[2] == "config":
+        overture_config(load_config(sys.argv[1]))
+        sys.exit(0)
     if len(sys.argv) > 2 and sys.argv[2] == "lookup":
         overture_lookup(load_config(sys.argv[1]))
         sys.exit(0)

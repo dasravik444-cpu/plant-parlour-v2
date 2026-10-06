@@ -6,7 +6,7 @@ on:
   workflow_dispatch:
     inputs:
       mode:
-        description: "coverage | taxonomy"
+        description: "coverage | taxonomy | config | lookup"
         default: "coverage"
 
 permissions:
