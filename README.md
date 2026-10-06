@@ -68,6 +68,25 @@ leads; phone 530, email 172, Instagram 172, WhatsApp 70. Google Maps returns far
 more businesses per search than the daily target, so the target is normally
 exceeded while each part is covered.
 
+## When something breaks
+
+| If this happens | The system |
+|---|---|
+| Google Maps throttles or blocks | pauses Maps for that run, uses the Places API (if you add a key) or OpenStreetMap, keeps unfinished searches for the next run; the run turns red if no provider worked |
+| Google changes its Maps response format | notices it (records that no longer parse, or only empty answers), keeps the searches instead of marking areas empty, and turns the run red |
+| A business website is down or slow | retries that one site later; everything else continues |
+| A search engine blocks or changes its page layout | pauses that engine and postpones the Instagram/Facebook lookups to a later run |
+| Instagram shows its login wall | skips Instagram bios for that run; Instagram handles are still collected |
+| Google Sheets fails | keeps the leads in the encrypted campaign memory and writes them next run; the run turns red |
+| A run is cancelled or times out | saves its progress first; the next run continues where it stopped |
+| The GitHub machine dies mid-run (nothing saved) | the next run repeats that run's work from the last saved state; leads already copied to the sheet (20-minute checkpoints) are updated, not duplicated |
+| GitHub skips a scheduled run | the next of the three daily runs continues; the calendar never skips territory |
+| The campaign memory is lost | starts over without duplicating sheet rows (rows are matched by Key, Lead IDs are kept) |
+| 60 days without commits | the daily *keepalive* job stops GitHub from pausing the schedule |
+
+"Turns red" means the run is marked failed on GitHub, and GitHub emails the
+repository owner.
+
 ## Quick start
 
 See **[docs/SETUP.md](docs/SETUP.md)** for step-by-step instructions (GitHub
