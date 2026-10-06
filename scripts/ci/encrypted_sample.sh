@@ -16,6 +16,20 @@ printf '%s' "$PUBKEY_B64" | base64 -d > "$tmp/pub.pem"
 openssl rand -hex 32 > "$tmp/k"
 gzip -9 -c "$tmp/sample.csv" | openssl enc -aes-256-cbc -pbkdf2 -iter 100000 -md sha256 -salt -pass "file:$tmp/k" -out "$tmp/sample.enc"
 openssl pkeyutl -encrypt -pubin -inkey "$tmp/pub.pem" -pkeyopt rsa_padding_mode:oaep -in "$tmp/k" -out "$tmp/k.enc"
-echo "SAMPLE_KEY_B64=$(base64 -w0 "$tmp/k.enc")"
-echo "SAMPLE_DATA_B64=$(base64 -w0 "$tmp/sample.enc")"
+key=$(base64 -w0 "$tmp/k.enc")
+data=$(base64 -w0 "$tmp/sample.enc")
 rm -rf "$tmp"
+echo "SAMPLE_KEY_B64=$key"
+echo "SAMPLE_DATA_B64=$data"
+
+# The same ciphertext as check-run annotations, readable through the REST API
+# (GET /repos/{owner}/{repo}/check-runs/{job_id}/annotations) where log
+# downloads are not available. GitHub keeps at most 10 notices per step.
+sum=$(printf '%s' "$data" | sha256sum | cut -c1-16)
+size=$(( (${#data} + 8) / 9 ))
+[ "$size" -lt 4000 ] && size=4000
+n=$(( (${#data} + size - 1) / size ))
+echo "::notice title=sample-key::$key"
+for ((i = 0; i < n; i++)); do
+  echo "::notice title=sample-data $((i + 1))/$n $sum::${data:$((i * size)):$size}"
+done
