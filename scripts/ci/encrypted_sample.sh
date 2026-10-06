@@ -11,7 +11,24 @@ if [ ! -f "$DB" ] || [ -z "${PUBKEY_B64:-}" ]; then
 fi
 tmp=$(mktemp -d)
 python -m leadgen export-csv --db "$DB" --out "$tmp/all.csv" >/dev/null
-head -n "${SAMPLE_ROWS:-120}" "$tmp/all.csv" > "$tmp/sample.csv"
+# Round-robin over categories so every category is represented in the sample.
+python - "$tmp/all.csv" "$tmp/sample.csv" "${SAMPLE_ROWS:-150}" <<'PY'
+import csv, sys
+from collections import defaultdict
+with open(sys.argv[1], newline="", encoding="utf-8") as fh:
+    rows = list(csv.reader(fh))
+head, groups = rows[0], defaultdict(list)
+cat = head.index("Category")
+for r in rows[1:]:
+    groups[r[cat]].append(r)
+picked, limit = [], int(sys.argv[3])
+while len(picked) < limit and any(groups.values()):
+    for g in groups.values():
+        if g and len(picked) < limit:
+            picked.append(g.pop(0))
+with open(sys.argv[2], "w", newline="", encoding="utf-8") as fh:
+    csv.writer(fh).writerows([head] + picked)
+PY
 printf '%s' "$PUBKEY_B64" | base64 -d > "$tmp/pub.pem"
 openssl rand -hex 32 > "$tmp/k"
 gzip -9 -c "$tmp/sample.csv" | openssl enc -aes-256-cbc -pbkdf2 -iter 100000 -md sha256 -salt -pass "file:$tmp/k" -out "$tmp/sample.enc"
