@@ -228,3 +228,43 @@ def test_all_searches_failing_is_reported_and_keeps_tasks(tmp_path):
     assert code == 2 and summary["status"].startswith("degraded")
     assert db.scalar("SELECT COUNT(*) FROM tasks WHERE kind='search' AND status='failed'") == 0
     assert db.scalar("SELECT MAX(attempts) FROM tasks WHERE kind='search'") == 1
+
+
+def test_checkpoint_syncs_during_the_run_without_duplicates(tmp_path):
+    cfg = make_config()
+    cfg["sheets"]["checkpoint_minutes"] = 0.0001          # checkpoint on (almost) every loop pass
+    db = DB(str(tmp_path / "state.sqlite"))
+    sess = FakeSheetsSession()
+    r = make_runner(cfg, db, World(), sheets_factory=lambda: SheetsSync(SheetsClient("sheet", session=sess)))
+    calls = []
+    real = r._sync_leads
+    r._sync_leads = lambda: calls.append(real()) or calls[-1]
+    code, s = r.run()
+    assert code == 0 and s["sheets"]["status"] == "ok"
+    assert len(calls) >= 2 and sum(a for a, _ in calls[:-1]) > 0   # rows reached the sheet before the end
+    leads = [row for row in sess.tabs["Leads"]["rows"][1:] if any(str(x) for x in row)]
+    keys = [row[KEY_COL] for row in leads]
+    assert len(keys) == len(set(keys)) == db.scalar("SELECT COUNT(*) FROM places WHERE qualified=1 AND excluded IS NULL")
+    assert s["sheets"]["added"] == len(leads)              # report counts the whole run, checkpoints included
+    assert db.scalar("SELECT COUNT(*) FROM places WHERE qualified=1 AND sync_state='pending'") == 0
+
+
+def test_failed_checkpoint_stops_checkpoints_and_final_sync_retries(tmp_path):
+    from leadgen.sheets import SheetsError
+
+    cfg = make_config()
+    cfg["sheets"]["checkpoint_minutes"] = 0.0001
+    db = DB(str(tmp_path / "state.sqlite"))
+    sess = FakeSheetsSession()
+    made = []
+
+    def factory():
+        made.append(1)
+        if len(made) == 1:
+            raise SheetsError("HTTP 503 (test)")
+        return SheetsSync(SheetsClient("sheet", session=sess))
+    code, s = make_runner(cfg, db, World(), sheets_factory=factory).run()
+    assert code == 0 and s["sheets"]["status"] == "ok"
+    assert len(made) == 2                                   # one failed checkpoint, then only the final sync
+    leads = [row for row in sess.tabs["Leads"]["rows"][1:] if any(str(x) for x in row)]
+    assert len(leads) == db.scalar("SELECT COUNT(*) FROM places WHERE qualified=1 AND excluded IS NULL")

@@ -64,6 +64,7 @@ spreadsheet_id = ""      # prefer the PP_SHEET_ID secret/environment variable
 leads_tab = "Leads"
 plan_tab = "Plan"
 report_tab = "Daily Report"
+checkpoint_minutes = 20  # also copy new leads to the sheet every N minutes during a run (0 = only at the end)
 
 [runtime]
 time_budget_minutes = 80

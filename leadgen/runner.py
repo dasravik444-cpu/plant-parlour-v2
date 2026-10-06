@@ -104,6 +104,9 @@ class Runner:
         self.radius = float(cfg["area"]["radius_km"])
         self.region = cfg["campaign"]["country"]
         self.city = cfg["area"].get("name") or ""
+        self._sheet = None
+        self._sheet_totals = [0, 0]  # rows added, updated this run (checkpoints + final sync)
+        self.checkpoint_s = float(cfg["sheets"].get("checkpoint_minutes") or 0) * 60
 
     # ------------------------------------------------------------------ setup
     def _setup_clients(self):
@@ -228,6 +231,8 @@ class Runner:
         self.discovery_on = self.discovery_requested
         sched_id = self.sched["id"] if self.sched else None
         finish_part = bool(self.cfg["plan"]["finish_scheduled_part"])
+        checkpoints = self.checkpoint_s > 0 and self.use_sheets and bool(self.cfg.sheet_id or self.sheets_factory)
+        next_checkpoint = self.now() + self.checkpoint_s
         try:
             while True:
                 if self.stop_requested:
@@ -239,6 +244,9 @@ class Runner:
                 if self.network_failures >= 6 and not self.http.network_ok():
                     raise NetworkDown("internet connection lost during the run")
                 self._harvest(inflight, block=False)
+                if checkpoints and self.now() >= next_checkpoint:
+                    checkpoints = self._checkpoint_sync()
+                    next_checkpoint = self.now() + self.checkpoint_s
                 qualified = self._qualified_today()
                 need_target = qualified < self.target
                 need_schedule = finish_part and sched_id is not None and self._open_searches(upto_part=sched_id) > 0
@@ -749,29 +757,13 @@ class Runner:
         if not sid and self.sheets_factory is None:
             self.warnings.append("Google Sheet not configured (set PP_SHEET_ID) - leads are kept in the state database")
             return {"status": "not configured"}
-        from .sheets import SheetsClient, SheetsError, SheetsSync
+        from .sheets import SheetsError
 
         try:
-            sync = self.sheets_factory() if self.sheets_factory else SheetsSync(
-                SheetsClient(sid), self.cfg["sheets"]["leads_tab"], self.cfg["sheets"]["plan_tab"], self.cfg["sheets"]["report_tab"])
-            sync.ensure_tabs()
-            cond = "qualified=1" if self.cfg["filters"]["require_contact"] else "1=1"
-            pending = self.db.q(f"SELECT * FROM places WHERE sync_state='pending' AND excluded IS NULL AND merged_into IS NULL AND {cond} "
-                                "ORDER BY lead_no, first_seen")
-            rows = [lead_row(self.db, p, self.cfg) for p in pending]
-            added, updated, adopted = sync.upsert_leads(rows) if rows else (0, 0, {})
-            with self.db.tx():
-                for p in pending:
-                    self.db.update_place(p["key"], sync_state="synced", synced_at=self.now())
-                for k, sheet_id in adopted.items():
-                    try:
-                        no = int(sheet_id.split("-")[-1])
-                    except ValueError:
-                        continue
-                    if not self.db.one("SELECT 1 FROM places WHERE lead_no=? AND key!=?", (no, k)):
-                        self.db.update_place(k, lead_no=no, sync_state="synced")
+            self._sync_leads()
+            added, updated = self._sheet_totals
+            sync = self._sheet_client()
             sync.write_plan(plan_rows(self.db, self.cfg, planner.start_date()))
-            self._sheet_counts = (added, updated)
             sync.append_report(self._report_row(planner, added, updated))
             log.info("Google Sheet updated: %d rows added, %d updated", added, updated)
             return {"status": "ok", "added": added, "updated": updated}
@@ -780,6 +772,49 @@ class Runner:
             self.warnings.append(msg)
             log.error("%s", msg)
             return {"status": f"error: {exc}"}
+
+    def _sheet_client(self):
+        if self._sheet is None:
+            from .sheets import SheetsClient, SheetsSync
+
+            sh = self.cfg["sheets"]
+            sync = self.sheets_factory() if self.sheets_factory else SheetsSync(
+                SheetsClient(self.cfg.sheet_id), sh["leads_tab"], sh["plan_tab"], sh["report_tab"])
+            sync.ensure_tabs()
+            self._sheet = sync
+        return self._sheet
+
+    def _sync_leads(self) -> tuple[int, int]:
+        """Write new and changed lead rows to the sheet (rows are matched by Key, so this is safe to repeat)."""
+        sync = self._sheet_client()
+        cond = "qualified=1" if self.cfg["filters"]["require_contact"] else "1=1"
+        pending = self.db.q(f"SELECT * FROM places WHERE sync_state='pending' AND excluded IS NULL AND merged_into IS NULL AND {cond} "
+                            "ORDER BY lead_no, first_seen")
+        rows = [lead_row(self.db, p, self.cfg) for p in pending]
+        added, updated, adopted = sync.upsert_leads(rows) if rows else (0, 0, {})
+        with self.db.tx():
+            for p in pending:
+                self.db.update_place(p["key"], sync_state="synced", synced_at=self.now())
+            for k, sheet_id in adopted.items():
+                try:
+                    no = int(sheet_id.split("-")[-1])
+                except ValueError:
+                    continue
+                if not self.db.one("SELECT 1 FROM places WHERE lead_no=? AND key!=?", (no, k)):
+                    self.db.update_place(k, lead_no=no, sync_state="synced")
+        self._sheet_totals[0] += added
+        self._sheet_totals[1] += updated
+        return added, updated
+
+    def _checkpoint_sync(self) -> bool:
+        """Mid-run copy of new leads to the sheet, so a lost runner loses little. Returns False to stop checkpoints."""
+        try:
+            added, updated = self._sync_leads()
+            log.info("checkpoint: Google Sheet +%d rows, %d updated", added, updated)
+            return True
+        except Exception as exc:  # noqa: BLE001 - the final sync retries and reports
+            log.warning("checkpoint sync skipped (%s) - the end-of-run sync will retry", exc)
+            return False
 
     def _report_row(self, planner: Planner, added: int, updated: int) -> list:
         cov = contact_coverage(self.db, self.today)
