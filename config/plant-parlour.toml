@@ -61,7 +61,7 @@ exclude_chains = [
   "domino", "pizza hut", "kfc", "mcdonald", "burger king", "subway", "starbucks", "cafe coffee day", "ccd",
   "barista", "costa coffee", "chaayos", "wow! momo", "wow momo", "taco bell", "baskin robbins", "keventers",
   "mad over donuts", "dunkin", "haldiram", "behrouz", "faasos", "oven story", "la pino", "naturals ice cream",
-  "the belgian waffle", "theobroma", "chai point", "tim hortons", "krispy kreme",
+  "the belgian waffle", "theobroma", "chai point", "tim hortons", "krispy kreme", "monginis", "mio amore",
   # hotel networks (OYO's other brands - "SPOT ON 83258 Hotel X" - are recognised automatically)
   "oyo", "fabhotel", "treebo",
   # national interior-design and coworking brands (central purchasing)
@@ -131,7 +131,7 @@ label = "Event planner / Decorator"
 queries = ["event management company", "wedding planner", "event decorator"]
 match = ["event", "wedding planner", "wedding service", "planner", "decorator", "decoration", "party planner", "party equipment", "caterer", "catering"]
 osm = ['["office"="event_management"]', '["craft"="caterer"]']
-overture = ["party_and_event_planning", "wedding_planning", "event_or_party_service", "caterer"]
+overture = ["party_and_event_planning", "wedding_planning", "caterer", "balloon_service", "party_equipment_rental"]
 
 [[categories]]
 key = "interior_designer"

@@ -39,6 +39,7 @@ AGGREGATOR_DOMAINS = {
     "business.google.com", "maps.app.goo.gl", "wa.me", "whatsapp.com", "linktr.ee", "bit.ly", "zaubacorp.com",
     "thefork.com", "restaurantguru.com", "lbb.in", "so.city", "whatshot.in", "nearbuy.com", "dunzo.com",
     "zeptonow.com", "blinkit.com", "bigbasket.com", "amazon.in", "flipkart.com", "practo.com", "quora.com",
+    "wikipedia.org", "wikimedia.org", "wikidata.org", "wikimapia.org", "wikitravel.org", "tripoto.com",
 }
 # Link hubs owned by the business: worth crawling for social links, but not a "website".
 LINK_HUB_DOMAINS = {"linktr.ee", "beacons.ai", "bio.link", "linkin.bio", "taplink.cc", "campsite.bio", "lnk.bio"}

@@ -2,10 +2,17 @@
 
 An automated, multi-agent lead generation system. Every day it works through
 one part of a target area (pilot: **Kolkata, 100 km radius, 30 daily parts**),
-finds relevant businesses on Google Maps (cafes, restaurants, banquet halls,
-event planners, interior designers, hotels, coworking spaces), collects
-their **real** contact routes and writes them to a Google Sheet.
+finds relevant businesses (cafes, restaurants, banquet halls, event planners,
+interior designers, landscapers, hotels, coworking spaces), collects their
+**real** contact routes and writes them to a Google Sheet.
 
+* **Follows the rules (default "open-data" mode).** Leads come only from data
+  that is licensed for re-use - [Overture Maps](https://overturemaps.org) places
+  (businesses' own Facebook pages via Meta, Microsoft, Foursquare...; CDLA-Permissive-2.0)
+  and OpenStreetMap - plus each business's own website, crawled openly as
+  *PlantParlourLeadBot* and only where its robots.txt allows. Nothing is
+  scraped from Google Maps, Google/Yahoo search, Instagram or Facebook. See
+  [Rules and licences](#rules-and-licences).
 * **No made-up data.** Every phone number, email, WhatsApp, Instagram, Facebook
   or LinkedIn entry was read from a public source and keeps the URL it came
   from (shown in the sheet's *Contact Sources* column). No AI model writes or
@@ -22,17 +29,12 @@ their **real** contact routes and writes them to a Google Sheet.
 
 ```mermaid
 flowchart LR
-  P[Planner\n100 km circle -> 30 parts] --> D[Discovery\nGoogle Maps search]
-  D -->|fallback| D2[Places API / OpenStreetMap]
+  P[Planner\n100 km circle -> 30 parts] --> D[Discovery\nOverture Maps open data]
+  D -->|fallback| D2[OpenStreetMap]
   D --> Q[Quality\nchains, closed, off-category, duplicates]
-  Q --> W[Website agent\nhome + contact pages]
-  Q --> S[Social finder\nweb search: Instagram, Facebook, LinkedIn, website]
-  W --> S
-  S --> W
-  S --> I[Instagram agent\nbio contacts when allowed]
+  Q --> W[Website agent\nhome + contact pages, as a named bot]
   W --> R[Recorder\nGoogle Sheet]
-  S --> R
-  I --> R
+  Q --> R
   R --> O[Observer\ndaily report + alerts]
 ```
 
@@ -40,18 +42,18 @@ flowchart LR
    up to 16 km in the countryside) and groups them into 30 balanced, connected
    parts, centre first. Day *N* of the campaign works part *N*. Parts are
    named after their localities ("Salt Lake / Bidhannagar / ...").
-2. **Discovery**: searches Google Maps for each category in each square.
-   This is the same lightweight endpoint the open-source
-   gosom/google-maps-scraper uses, with no browser. Verified live from GitHub
-   Actions: 20 businesses per page, paging works, phone numbers on most listings.
+2. **Discovery**: once a month the system downloads the campaign area's
+   relevant places from Overture Maps' open data (a few seconds) and then
+   answers each square and category from that local copy. The phones, emails
+   and Facebook pages the businesses published come with it. OpenStreetMap is
+   the fallback. (In *standard* mode it searches Google Maps instead.)
 3. **Quality**: drops permanently closed places, national chains (configurable
-   list), off-category results and duplicates (same Google place, or same name
-   within 150 m).
+   list and the data's brand field), off-category results, low-confidence
+   listings and duplicates (same place id, or same name within 150 m).
 4. **Enrichment** (in parallel): crawls the business's own website (homepage +
-   up to 3 contact/about pages, respecting robots.txt), then searches the web
-   for its Instagram/Facebook/LinkedIn pages and, if Google Maps had none, its
-   website. Search matches are accepted only when the profile name clearly
-   matches the business and is not in another city.
+   up to 3 contact/about pages, respecting robots.txt) for more emails, phones,
+   WhatsApp links and social pages. (Standard mode additionally searches the
+   web for Instagram/Facebook/LinkedIn pages, with strict name matching.)
 5. **Recorder**: writes one row per business to the *Leads* tab (updates rows
    in place, never duplicates, never overwrites your *Status* column), plus a
    *Plan* tab and a *Daily Report* tab.
@@ -119,17 +121,34 @@ python -m leadgen export-csv --out leads.csv
 
 | Source | Status (tested 2026-10-06 from GitHub Actions) |
 |---|---|
-| Google Maps search (names, phone, website, address, rating, area) | Works. Google may throttle heavy use; the system paces requests and backs off, with fallbacks. |
+| Overture Maps open data (default source) | Works (tested 2026-10-06): 209,000 places in the 100 km circle, 73% with a phone, 40% with an email, 40% with a website. Updated monthly. Some listings are stale (old Facebook pages); places with low confidence are skipped. Coworking spaces are poorly covered (12). No ratings. |
+| Google Maps search (standard mode only) | Works, more complete (ratings, coworking), but against Google's terms of service. Off by default. |
 | Business websites (email, phones, WhatsApp links, social links) | Works; about half of listings have a website. |
 | Web search for Instagram/Facebook/LinkedIn/website | Yahoo works (200+ lookups in a 19-minute run); DuckDuckGo rate-limits after about 1 query (slow backup). Matches must pass the accuracy rules; uncertain ones are marked unverified. |
 | Instagram profile bios (emails/phones) | Blocked when logged out from data-centre IPs (HTTP 401). Instagram *handles* are still found via websites, Maps and search. May work on the tablet. |
 | LinkedIn emails | Not collected (needs paid tools/login, against LinkedIn's terms). Company page URLs are collected. |
 | WhatsApp | Only numbers explicitly published as WhatsApp (wa.me links, "WhatsApp: ..." text). Mobile numbers are labelled *mobile*; WhatsApp registration cannot be verified without WhatsApp's API. |
 | OpenStreetMap | Used for planning and as a free fallback; public servers are often slow. |
-| Google Places API (official) | Optional fallback if you add a key; capped below Google's 1,000 free calls/month. |
+| Google Places API (official) | Not used: Google's terms forbid saving its names, addresses and phones in our own lists, even through the paid API. |
 
-Scraping Google Maps is against Google's terms of service. The system keeps
-request rates low; the official Places API fallback is available if you prefer.
+## Rules and licences
+
+* **Google.** Google's Maps Platform terms (section 3.2.3) forbid scraping Google Maps and
+  "copying and saving business names, addresses, or user reviews" - also through the official,
+  paid Places API. So no tool can save Google Maps listings into a sheet within Google's rules.
+  The default **open-data** mode therefore does not use Google at all (the sheet only contains a
+  Google Maps *search link* per business, which Google allows). `compliance.mode = "standard"`
+  in the config switches Google Maps and web-search scraping back on - only if you accept that.
+* **Overture Maps** places are published under CDLA-Permissive-2.0 (and Apache-2.0 for some
+  sources): they may be stored and used commercially. If you share the data with someone else
+  (e.g. a client), include: *Contains data from the Overture Maps Foundation (CDLA-Permissive-2.0).*
+  OpenStreetMap data: *(c) OpenStreetMap contributors (ODbL)*.
+* **Websites** are read openly as `PlantParlourLeadBot` (with a link to this repository), only
+  where robots.txt allows, slowly (one page every 2 seconds per site), homepage plus at most 3
+  contact/about pages.
+* **Outreach (later phase).** Business contact details published by the businesses themselves
+  may be used for business offers, but India's TRAI rules apply to promotional calls/SMS
+  (respect the DND registry), and every email should offer an opt-out.
 
 ## Repository layout
 

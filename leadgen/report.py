@@ -15,7 +15,7 @@ from .util import fmt_local, jload, mask_value
 SOURCE_NAMES = {"google_maps": "Google Maps", "website": "website", "jsonld": "website (structured data)",
                 "search": "web search", "instagram": "Instagram profile", "places_api": "Google Places API",
                 "osm": "OpenStreetMap", "overture": "Overture Maps (open data)"}
-KIND_ORDER = ["phone", "whatsapp", "email", "instagram", "facebook", "linkedin", "twitter", "youtube"]
+KIND_ORDER = ["phone", "whatsapp", "email", "instagram", "facebook", "linkedin", "person", "twitter", "youtube"]
 
 
 def lead_id(no: int | None) -> str:
@@ -33,6 +33,9 @@ def lead_row(db: DB, p, cfg) -> dict:
         if kind in ("phone", "whatsapp") and value.startswith("+"):
             label = refine_phone_label(value, c["label"], local_prefixes) if kind == "phone" else ""
             shown = display_phone(value) + (f" ({label})" if label else "")
+        elif kind == "person":
+            role = (c["label"] or "").split(",")[0].strip()
+            shown = value + (f" ({role})" if role else "")
         else:
             shown = value
         if c["confidence"] == "low":
@@ -66,6 +69,7 @@ def lead_row(db: DB, p, cfg) -> dict:
         "Instagram": "\n".join(good["instagram"]),
         "Facebook": "\n".join(good["facebook"]),
         "LinkedIn": "\n".join(good["linkedin"]),
+        "Contact Person": "\n".join(good["person"]),
         "Website": website,
         "Google Maps": p["maps_url"] or "",
         "Rating": rating,

@@ -36,6 +36,52 @@ SOCIAL_HOST_KIND = {
 
 CONTACT_LINK_WORDS = re.compile(r"contact|about|reach|find[\s\-_]?us|get[\s\-_]?in[\s\-_]?touch|connect|enquir|inquir|location|visit[\s\-_]?us|book|reserv|support", re.I)
 SKIP_LINK_EXT = re.compile(r"\.(pdf|jpe?g|png|gif|svg|webp|zip|rar|docx?|xlsx?|pptx?|mp4|mp3|avi|mov)(\?|$)", re.I)
+# A named contact person, only when the business's own site says so explicitly ("Founder: Rahul Sharma",
+# "Rahul Sharma, Owner", "Founded by Rahul Sharma"). Never inferred from reviews or e-mail addresses.
+_ROLE = r"(?i:co[- ]?founder|founder|owner|proprietor|proprietress|managing director|director|ceo|chef[- ]owner|partner)"
+_PNAME = r"(?:(?:Mr|Mrs|Ms|Dr|Smt|Shri|Sri)\.?\s+)?([A-Z][a-z]{1,15}(?:\s+[A-Z][a-z]{1,15}){1,2})"
+PERSON_PATTERNS = [
+    re.compile(rf"\b({_ROLE})\s*[:\-\u2013\u2014]\s*{_PNAME}"),
+    re.compile(rf"{_PNAME}\s*(?:,|\(|\s[\-\u2013\u2014])\s*(?i:our\s+|the\s+)?({_ROLE})\b"),
+    re.compile(rf"\b(?i:founded|started|established)\s+(?:(?i:in)\s+\d{{4}}\s+)?(?i:by)\s+{_PNAME}"),
+]
+NOT_NAME_WORDS = {
+    "our", "the", "team", "contact", "home", "about", "read", "more", "welcome", "call", "email", "phone", "address",
+    "menu", "book", "view", "click", "here", "privacy", "policy", "terms", "copyright", "rights", "reserved", "india",
+    "kolkata", "calcutta", "west", "bengal", "salt", "lake", "new", "town", "private", "limited", "pvt", "ltd", "group",
+    "company", "services", "service", "solutions", "cafe", "restaurant", "hotel", "banquet", "events", "event", "interior",
+    "interiors", "design", "designs", "studio", "kitchen", "foods", "food", "january", "february", "march", "april", "may",
+    "june", "july", "august", "september", "october", "november", "december", "monday", "tuesday", "wednesday",
+    "thursday", "friday", "saturday", "sunday", "director", "founder", "owner", "manager", "chef", "partner", "and",
+}
+
+
+def valid_person_name(name: str) -> bool:
+    words = name.split()
+    return 2 <= len(words) <= 3 and all(w.isalpha() and w.lower() not in NOT_NAME_WORDS for w in words)
+
+
+def find_people(text: str) -> list[tuple[str, str, str]]:
+    """[(name, role, snippet)] for explicitly stated owners/founders in page text."""
+    out, seen = [], set()
+    for i, pat in enumerate(PERSON_PATTERNS):
+        for m in pat.finditer(text):
+            if i == 0:
+                role, name = m.group(1), m.group(2)
+            elif i == 1:
+                name, role = m.group(1), m.group(2)
+            else:
+                name, role = m.group(1), "founder"
+            words = name.split()
+            while words and words[0].lower() in ("meet", "hello", "hi", "dear", "with", "from", "by", "says", "ask"):
+                words.pop(0)                                   # "Meet Priya Das, Founder" -> "Priya Das"
+            name = " ".join(words)
+            if valid_person_name(name) and name.lower() not in seen:
+                seen.add(name.lower())
+                out.append((name, role.lower().replace("co founder", "co-founder"), text[max(0, m.start() - 20):m.end() + 20]))
+    return out[:3]
+
+
 AGENCY_CONTEXT = re.compile(r"(designed|developed|powered|crafted|built|maintained|created|hosted|managed)\s+(and\s+\w+\s+)?by", re.I)
 
 
@@ -210,6 +256,10 @@ def extract_page(html: str, url: str, region: str = "IN", contact_page: bool = F
                     s = canonical_social(same)
                     if s:
                         pe.add(Found(s[0], s[1], "jsonld"))
+            for f in _as_list(n.get("founder")):
+                fname = (f.get("name") if isinstance(f, dict) else f) or ""
+                if isinstance(fname, str) and valid_person_name(fname.strip()):
+                    pe.add(Found("person", fname.strip(), "jsonld", "founder"))
 
     # --- links ----------------------------------------------------------------
     for a in soup.find_all("a", href=True):
@@ -269,6 +319,8 @@ def extract_page(html: str, url: str, region: str = "IN", contact_page: bool = F
         pe.add(Found("email", e, "text"))
     for e164, label, snip in find_phones_in_text(text_clean, region, require_context=not contact_page):
         pe.add(Found("phone", e164, "text", label, snip))
+    for name, role, snip in find_people(text_clean):
+        pe.add(Found("person", name, "text", role, snip))
     # "WhatsApp: +91 ..." written as text
     for m in re.finditer(r"whats\s*app[^0-9+]{0,25}((?:\+?91[\s\-]?)?[6-9]\d{4}[\s\-]?\d{5})", text_clean, re.I):
         p = parse_phone(m.group(1), region)

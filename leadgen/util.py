@@ -124,4 +124,6 @@ def mask_value(kind: str, value: str) -> str:
     if kind == "email" and "@" in value:
         local, _, domain = value.partition("@")
         return local[:1] + "***@" + domain
+    if kind == "person":
+        return " ".join(w[:1] + "." for w in value.split())
     return value

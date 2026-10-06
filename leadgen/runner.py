@@ -501,6 +501,10 @@ class Runner:
             if haversine_km(self.center[0], self.center[1], pl.lat, pl.lng) > self.radius:
                 self.stats["outside_area"] += 1
                 continue
+            if provider == "overture" and (not pl.area or pl.area.lower() in (self.city.lower(), "")):
+                cell = self.db.one("SELECT name FROM cells WHERE id=?", (payload.get("cell_id"),))
+                if cell and cell["name"]:
+                    pl.area = f"{cell['name']}, {pl.area}" if pl.area else cell["name"]
             existing = self.db.find_existing(pl.place_id, pl.data_id, pl.key) or self._fuzzy_duplicate(pl)
             if existing:
                 self._merge_into(existing, pl, provider)
@@ -510,6 +514,8 @@ class Runner:
             excluded = None
             chain = is_chain(pl.name, filters["exclude_chains"]) or (is_chain(pl.extra["brand"], filters["exclude_chains"])
                                                                      if pl.extra.get("brand") else None)
+            if not chain and pl.extra.get("brand_known"):
+                chain = f"brand {pl.extra.get('brand') or 'listed on Wikidata'}"   # known multi-outlet brand
             if filters["exclude_closed"] and pl.closed:
                 excluded = f"closed ({pl.status_text or 'per listing'})"
             elif chain:

@@ -20,8 +20,14 @@ API = "https://sheets.googleapis.com/v4/spreadsheets"
 SCOPES = ["https://www.googleapis.com/auth/spreadsheets"]
 
 LEAD_COLUMNS = ["Lead ID", "Date Added", "Business Name", "Category", "Area", "Address", "Phones", "WhatsApp", "Emails",
-                "Instagram", "Facebook", "LinkedIn", "Website", "Google Maps", "Rating", "Priority", "Description",
-                "Contact Sources", "Other Contacts (unverified)", "Plan Part", "Last Updated", "Key", "Status"]
+                "Instagram", "Facebook", "LinkedIn", "Contact Person", "Website", "Google Maps", "Rating", "Priority",
+                "Description", "Contact Sources", "Other Contacts (unverified)", "Plan Part", "Last Updated", "Key", "Status"]
+# Earlier layouts: a sheet created with one of these is upgraded in place (columns inserted, data kept).
+OLD_LEAD_LAYOUTS = [
+    ["Lead ID", "Date Added", "Business Name", "Category", "Area", "Address", "Phones", "WhatsApp", "Emails",
+     "Instagram", "Facebook", "LinkedIn", "Website", "Google Maps", "Rating", "Priority", "Description",
+     "Contact Sources", "Other Contacts (unverified)", "Plan Part", "Last Updated", "Key", "Status"],
+]
 STATUS_COL = LEAD_COLUMNS.index("Status")
 KEY_COL = LEAD_COLUMNS.index("Key")
 PLAN_COLUMNS = ["Part", "Area", "Main localities", "Areas seen in results", "Search squares", "Scheduled date", "Status",
@@ -159,6 +165,8 @@ class SheetsSync:
         for tab, cols in wanted:
             head = self.c.get_values(f"{_tab_ref(tab)}!A1:{col_letter(len(cols) - 1)}1")
             current = head[0] if head else []
+            if tab == self.leads_tab and current:
+                current = self._upgrade_layout(tabs[tab]["sheetId"], [x.strip() for x in current], cols)
             if not any(x.strip() for x in current):
                 self.c.update_values(f"{_tab_ref(tab)}!A1", [cols])
                 sheet_id = tabs[tab]["sheetId"]
@@ -172,6 +180,24 @@ class SheetsSync:
             elif [x.strip() for x in current[:len(cols)]] != cols:
                 raise SheetsError(f"tab '{tab}' has unexpected headers {current[:6]}... - rename that tab or set a different "
                                   f"tab name in the config; the system will not overwrite it")
+
+    def _upgrade_layout(self, sheet_id: int, current: list[str], cols: list[str]) -> list[str]:
+        """Insert columns added in a newer version into a sheet made with an older layout (data moves along)."""
+        for old in OLD_LEAD_LAYOUTS:
+            if current[:len(old)] == old and current[:len(cols)] != cols:
+                layout = list(old)
+                for idx, name in enumerate(cols):
+                    if idx >= len(layout) or layout[idx] != name:
+                        if name in layout:
+                            break      # a reordering, not an insertion: leave it to the header check
+                        self.c.batch_update([{"insertDimension": {"range": {"sheetId": sheet_id, "dimension": "COLUMNS",
+                                                                            "startIndex": idx, "endIndex": idx + 1},
+                                                                  "inheritFromBefore": True}}])
+                        layout.insert(idx, name)
+                self.c.update_values(f"{_tab_ref(self.leads_tab)}!A1", [cols])
+                log.info("Leads tab upgraded to the current column layout")
+                return list(cols)
+        return current
 
     # -- leads ------------------------------------------------------------------
     def existing_rows(self) -> dict[str, tuple[int, str]]:

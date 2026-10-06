@@ -165,6 +165,14 @@ class FakeSheetsSession:
                     self.tabs[title] = {"id": self.next_id, "rows": []}
                     replies.append({"addSheet": {"properties": {"sheetId": self.next_id, "title": title}}})
                     self.next_id += 1
+                elif "insertDimension" in req:
+                    rng = req["insertDimension"]["range"]
+                    tab = next(k for k, v in self.tabs.items() if v["id"] == rng["sheetId"])
+                    n = rng["endIndex"] - rng["startIndex"]
+                    for r in self.tabs[tab]["rows"]:
+                        if len(r) >= rng["startIndex"]:
+                            r[rng["startIndex"]:rng["startIndex"]] = [""] * n
+                    replies.append({})
                 elif "deleteSheet" in req:
                     sid = req["deleteSheet"]["sheetId"]
                     self.tabs = {k: v for k, v in self.tabs.items() if v["id"] != sid}

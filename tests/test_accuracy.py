@@ -151,3 +151,45 @@ def test_search_account_differing_from_listed_one_is_unverified(tmp_path):
     row = lead_row(db, db.get_place(key), make_config())
     assert "mochamansion.kol" in row["Instagram"] and "mochamansionbistro" not in row["Instagram"]
     assert "mochamansionbistro/ (differs from the account the business lists)" in row["Other Contacts (unverified)"]
+
+
+def test_contact_person_only_when_the_site_says_so():
+    from leadgen.enrich.extract import extract_page, find_people
+
+    assert find_people("Meet Priya Das, Founder of Bloom Cafe") == [("Priya Das", "founder", "Meet Priya Das, Founder of Bloom Cafe")]
+    assert [p[0] for p in find_people("Founded in 2015 by Ankit Jain and his wife")] == ["Ankit Jain"]
+    assert find_people("Our Team Contact Us Home About") == [] and find_people("The Owner: Kzar Banquet") == []
+    html = ('<html><head><title>Bloom Cafe</title><script type="application/ld+json">{"@type": "CafeOrCoffeeShop", '
+            '"name": "Bloom Cafe", "founder": {"@type": "Person", "name": "Riya Sen"}}</script></head>'
+            '<body><p>Proprietor: Mr. Amit Ghosh</p><p>Designed by Akash Web</p></body></html>')
+    people = {(f.value, f.how, f.label) for f in extract_page(html, "https://bloomcafe.in/").found if f.kind == "person"}
+    assert people == {("Riya Sen", "jsonld", "founder"), ("Amit Ghosh", "text", "proprietor")}
+
+
+def test_sheet_made_with_the_old_layout_is_upgraded_not_rejected():
+    from helpers import FakeSheetsSession
+    from leadgen.sheets import LEAD_COLUMNS, OLD_LEAD_LAYOUTS, SheetsClient, SheetsSync
+
+    sess = FakeSheetsSession()
+    sess.tabs["Leads"] = {"id": 7, "rows": [list(OLD_LEAD_LAYOUTS[0]), ["PP-00001", "2026-10-06", "Old Cafe"] + [""] * 9 +
+                                           ["https://old.in/"] + [""] * 8 + ["g:old", "Called"]]}
+    sync = SheetsSync(SheetsClient("sheet", session=sess))
+    sync.ensure_tabs()
+    rows = sess.tabs["Leads"]["rows"]
+    assert rows[0][:len(LEAD_COLUMNS)] == LEAD_COLUMNS
+    old = dict(zip(LEAD_COLUMNS, rows[1]))
+    assert old["Website"] == "https://old.in/" and old["Key"] == "g:old" and old["Status"] == "Called" and old["Contact Person"] == ""
+
+
+def test_known_brand_is_a_chain_and_wikipedia_is_not_a_website(tmp_path):
+    from leadgen.quality import is_aggregator
+
+    assert is_aggregator("https://en.m.wikipedia.org/wiki/Reem")
+    from test_open_data import od_config, row, store
+    from leadgen.db import DB
+
+    cfg = od_config()
+    db = DB(str(tmp_path / "s.sqlite"))
+    rows = [dict(row(1, "Monginis Cake Shop", "cafe"), brand="Monginis", brand_wikidata="Q6900993")]
+    p = store(db, cfg, rows=rows).search_cell(22.58, 88.42, 2.0, "cafe")[0]
+    assert p.extra["brand_known"] and p.extra["brand"] == "Monginis"

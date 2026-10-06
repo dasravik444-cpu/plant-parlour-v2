@@ -33,6 +33,13 @@ SOURCE_URL = "https://overturemaps.org"
 VENUE_WORDS = re.compile(r"\b(banquet|banquets|hall|bhavan|bhawan|bhaban|lawn|lawns|venue|palace|marriage|convention|"
                          r"resort|farm ?house|club ?house|community)\b", re.I)
 EVENT_CODES = {"party_and_event_planning", "wedding_planning"}
+# Facebook pages of all kinds of businesses use "party_and_event_planning" (a petrochemical trader, a travel
+# agent...): for that code the name, e-mail or website must show the business is really about events.
+NOISY_CODES = {"party_and_event_planning"}
+EVENT_WORDS = re.compile(r"(event|wedding|shaadi|shadi|biye|marriage|banquet|hall|bhavan|bhawan|bhaban|lawn|party|parties|"
+                         r"decor|planner|management|cater|tent|shamiana|pandal|light|sound|\bdj\b|flower|floral|"
+                         r"celebrat|function|ceremon|venue|mandap|entertain|production|occasion|utsav|convention|resort|"
+                         r"palace|farm ?house|club|community|anushthan|birthday)", re.I)
 
 
 def latest_release(timeout: float = 30.0) -> str:
@@ -75,7 +82,7 @@ def fetch_area(release: str, bbox: tuple, codes: list[str], min_confidence: floa
                    taxonomy.primary AS code, basic_category AS basic, taxonomy.alternates AS alternates,
                    phones, emails, websites, socials,
                    addresses[1].freeform AS street, addresses[1].locality AS locality, addresses[1].postcode AS postcode,
-                   confidence, brand.names.primary AS brand, operating_status AS status,
+                   confidence, brand.names.primary AS brand, brand.wikidata AS brand_wikidata, operating_status AS status,
                    list_distinct([s.dataset FOR s IN sources]) AS datasets
             FROM read_parquet('{source or f"s3://{BUCKET}/release/{release}/theme=places/type=place/*"}', hive_partitioning=1)
             WHERE bbox.xmin BETWEEN {xmin} AND {xmax} AND bbox.ymin BETWEEN {ymin} AND {ymax}
@@ -113,9 +120,12 @@ class OvertureStore:
                     out.append(c)
         return out
 
-    def category_for(self, code: str, basic: str, name: str) -> str | None:
-        """Our category for an Overture code (exact code first, then patterns, then the broad basic category)."""
+    def category_for(self, code: str, basic: str, name: str, hints: str = "") -> str | None:
+        """Our category for an Overture code (exact code first, then patterns, then the broad basic category).
+        `hints`: the place's e-mails and websites, used as evidence for noisy codes."""
         if code in self.exclude:
+            return None
+        if code in NOISY_CODES and not EVENT_WORDS.search(f"{name} {hints}"):
             return None
         cats = self.cfg.categories
         if code in EVENT_CODES:
@@ -193,7 +203,8 @@ class OvertureStore:
                 [(r["id"], release, (r.get("name") or "").strip(), float(r["lat"]), float(r["lng"]), r.get("code"), r.get("basic"),
                   jdump(list(r.get("alternates") or [])), jdump(list(r.get("phones") or [])), jdump(list(r.get("emails") or [])),
                   jdump(list(r.get("websites") or [])), jdump(list(r.get("socials") or [])), r.get("street"), r.get("locality"),
-                  r.get("postcode"), None if r.get("confidence") is None else float(r["confidence"]), r.get("brand"), r.get("status"),
+                  r.get("postcode"), None if r.get("confidence") is None else float(r["confidence"]),
+                  "|".join(x for x in (r.get("brand") or "", r.get("brand_wikidata") or "") if x) or None, r.get("status"),
                   jdump(list(r.get("datasets") or [])))
                  for r in rows if r.get("id") and r.get("lat") is not None and r.get("lng") is not None and (r.get("name") or "").strip()])
 
@@ -206,7 +217,8 @@ class OvertureStore:
         out = []
         for r in self.db.q("SELECT * FROM open_places WHERE lat BETWEEN ? AND ? AND lng BETWEEN ? AND ? ORDER BY confidence DESC",
                            (s, n, w, e)):
-            cat = self.category_for(r["code"] or "", r["basic"] or "", r["name"])
+            hints = " ".join((jload(r["emails"], []) or []) + (jload(r["websites"], []) or []))
+            cat = self.category_for(r["code"] or "", r["basic"] or "", r["name"], hints)
             if cat != category:
                 continue
             out.append(self.to_place(r, cat))
@@ -228,4 +240,5 @@ class OvertureStore:
             maps_url=f"https://www.google.com/maps/search/?api=1&query={quote(query)}",
             extra={"category": category, "phones": phones, "emails": jload(r["emails"], []) or [], "websites": websites,
                    "socials": socials, "datasets": jload(r["datasets"], []) or [], "confidence": r["confidence"],
-                   "brand": r["brand"] or "", "record": r["id"]})
+                   "brand": (r["brand"] or "").split("|")[0], "brand_known": "|Q" in (r["brand"] or "") or (r["brand"] or "").startswith("Q"),
+                   "record": r["id"]})

@@ -68,6 +68,10 @@ def test_category_mapping_and_exclusions(tmp_path):
     assert st.category_for("party_and_event_planning", "event_or_party_service", "Dream Events") == "event_planner"
     assert st.category_for("caterer", "event_or_party_service", "Tasty Caterers") == "event_planner"
     assert st.category_for("bank", "financial_service", "Some Bank") is None
+    # the noisy Facebook category needs evidence that the business is about events
+    assert st.category_for("party_and_event_planning", "event_or_party_service", "Assam Petro Chemicals") is None
+    assert st.category_for("party_and_event_planning", "event_or_party_service", "B You", "events.byou@gmail.com") == "event_planner"
+    assert st.category_for("party_and_event_planning", "event_or_party_service", "RedMagma Productions") == "event_planner"
 
 
 def test_extract_is_cached_and_refreshed_only_when_needed(tmp_path):

@@ -70,8 +70,15 @@ Edit `config/plant-parlour.toml` (on GitHub: open the file > pencil icon):
 
 * `daily_target`, `days`, `radius_km`, `center`, categories and their search words,
   the list of chains to skip, time budget.
-* Changing the **area, number of days or categories** needs a re-plan: run the
-  workflow manually with **replan = true**. Leads already found are kept.
+* Changing the **area or number of days** needs a re-plan: run the workflow
+  manually with **replan = true**. Leads already found are kept. Adding or
+  removing **categories** or search words does not: the next run adds the new
+  searches to every part (including finished ones) and drops removed ones.
+* `[compliance] mode`: `"open-data"` (default) uses only openly licensed data
+  (Overture Maps, OpenStreetMap) and the businesses' own websites, and follows
+  Google's and Meta's terms. `"standard"` also scrapes Google Maps and search
+  engines: more complete (ratings, coworking spaces), but against Google's
+  terms of service. Only switch if you accept that.
 * For a new city or client, copy the file (e.g. `config/client-b.toml`) and
   give it its own sheet. (One campaign per repository copy is simplest.) Set
   `aliases` (other names of the city) and `local_landline_prefixes` (the
@@ -80,8 +87,8 @@ Edit `config/plant-parlour.toml` (on GitHub: open the file > pencil icon):
 ## 6. The tablet (optional backup)
 
 The tablet can run the same system when GitHub is unavailable, or as your main
-runner if you prefer. Its home internet connection may also be allowed to read
-Instagram bios, which GitHub's servers are not.
+runner if you prefer. Use Ubuntu inside Termux (proot-distro) so the `duckdb`
+package installs; it reads the Overture Maps open data.
 
 In Termux (or Ubuntu inside Termux):
 

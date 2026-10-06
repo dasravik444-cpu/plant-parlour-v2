@@ -30,7 +30,7 @@
 | Agent | Module | Input → output |
 |---|---|---|
 | Planner | `planner.py`, `geo.py`, `providers/osm.py` | config → parts, search squares, `search` tasks |
-| Discovery | `providers/gmaps.py` (+ `places_api.py`, `osm.py`) | square + query → places |
+| Discovery | `providers/overture.py` (open-data mode, default), `osm.py`; `gmaps.py`, `places_api.py` (standard mode) | square + category → places |
 | Quality | `quality.py`, `runner._ingest` | places → kept / excluded (closed, chain, off-category, duplicate, outside area) |
 | Website | `enrich/website.py`, `enrich/extract.py` | site → emails, phones, WhatsApp, social links, description |
 | Social finder | `enrich/social.py`, `enrich/search.py` | business name → Instagram/Facebook/LinkedIn page, website |
@@ -95,6 +95,33 @@ seen only in a search snippet) go to the *Other Contacts (unverified)* column.
 * **Foreign numbers** on an Indian business's website are unverified. Landlines
   from another region (Delhi +91 11...) are labelled as likely booking-platform
   lines; Indian mobile ranges are labelled *mobile*.
+
+## Open-data mode (default)
+
+`[compliance] mode = "open-data"` restricts the system to sources whose licences
+allow storing and re-using the data, and to the businesses' own websites:
+
+* **Overture Maps places** (CDLA-Permissive-2.0 / Apache-2.0; Meta business pages,
+  Microsoft, Foursquare, AllThePlaces...). `providers/overture.py` lists the
+  latest release on the public S3 bucket, reads only the campaign's bounding box
+  and the configured category codes (`overture = [...]` per category; codes or
+  `basic_category`, `*` patterns allowed) with DuckDB, and stores the rows in the
+  `open_places` table. The extract is refreshed when a newer release exists and
+  the last check is older than `open_data.refresh_days`. If a refresh fails, the
+  stored extract is used; if there is none, discovery falls back to OpenStreetMap.
+* Each search task (square + category) is answered from `open_places` (the square
+  is widened by 2% because neighbouring squares can leave hairline gaps; repeats
+  merge by place id). Secondary queries of a category return nothing.
+* Phones, emails and social links from Overture are stored with source `overture`,
+  the Facebook page (or overturemaps.org) as source URL and the record id and
+  datasets as evidence. A Facebook page from Meta's dataset counts as high
+  confidence. The brand field feeds the chain filter.
+* Websites are crawled with `User-Agent: PlantParlourLeadBot/2.0 (+repository URL)`,
+  no TLS/browser impersonation, and robots.txt is evaluated for that bot name.
+* Search-engine lookups, Instagram profile reads and Google Maps are disabled.
+
+Measured 2026-10-06 for 100 km around Kolkata: 209,282 places; 152,758 with a phone,
+82,929 with an email, 84,091 with a website, 183,220 with a social link.
 
 ## Search squares and parts
 
