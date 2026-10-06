@@ -1,0 +1,134 @@
+# Plant Parlour - Kolkata pilot campaign
+# Edit this file to change the target area, categories or daily target.
+# Secrets (sheet id, Google key) are NOT stored here - see docs/SETUP.md.
+
+[campaign]
+id = "plant-parlour-kolkata"
+client = "Plant Parlour"
+timezone = "Asia/Kolkata"
+country = "IN"
+language = "en"
+region = "in"
+# Day 1 of the plan. Leave empty to start on the first run's date.
+start_date = ""
+
+[area]
+name = "Kolkata"
+center = [22.5726, 88.3639]   # latitude, longitude
+radius_km = 100
+
+[plan]
+days = 30                # split the circle into 30 daily parts ("auto" = estimate from data)
+daily_target = 150       # leads per day (a lead = a relevant business with at least one contact route)
+order = "center_out"     # work the dense city centre first, then move outwards
+min_cell_km = 1.0        # smallest search square (dense areas)
+max_cell_km = 10.0       # largest search square (rural areas)
+split_threshold = 60     # split a square while it holds more than this many mapped businesses
+finish_scheduled_part = true   # always finish the day's part, even after the target is met
+
+[discovery]
+providers = ["gmaps", "places_api", "osm"]   # tried in this order; later ones are fallbacks
+max_pages = 3            # Google Maps result pages per search (20 results each)
+gmaps_interval_s = 4.0   # polite delay between Google Maps requests
+gmaps_jitter_s = 3.0
+places_api_daily_cap = 30      # official API calls/day (only if GOOGLE_PLACES_API_KEY is set)
+places_api_monthly_cap = 900   # stays under Google's 1,000 free Text Search Enterprise calls/month
+
+[filters]
+require_contact = true   # only send businesses with at least one phone/email/WhatsApp/Instagram to the sheet
+exclude_closed = true
+allow_unmatched_categories = false
+# National/international chains buy centrally - poor leads for local plant supply.
+exclude_chains = [
+  "domino", "pizza hut", "kfc", "mcdonald", "burger king", "subway", "starbucks", "cafe coffee day", "ccd",
+  "barista", "costa coffee", "chaayos", "wow! momo", "wow momo", "taco bell", "baskin robbins", "keventers",
+  "mad over donuts", "dunkin", "haldiram", "behrouz", "faasos", "oven story", "la pino", "naturals ice cream",
+  "the belgian waffle", "theobroma", "chai point", "tim hortons", "krispy kreme", "oyo", "fabhotel", "treebo",
+]
+exclude_name_words = []
+
+[enrich]
+website = true
+max_pages_per_site = 4
+social_search = true
+social_kinds = ["instagram", "facebook", "linkedin"]
+instagram_profile = true
+check_email_mx = true
+workers = 6
+search_interval_s = 6.0
+site_interval_s = 2.0
+
+[sheets]
+enabled = true
+spreadsheet_id = ""      # prefer the PP_SHEET_ID secret/environment variable
+leads_tab = "Leads"
+plan_tab = "Plan"
+report_tab = "Daily Report"
+
+[runtime]
+time_budget_minutes = 80
+safety_margin_minutes = 6
+use_curl_cffi = true
+
+# ----------------------------------------------------------------------------
+# Business categories. `queries` are typed into Google Maps for every search
+# square; `match` words are checked against Google's own category labels to
+# keep only relevant businesses; `osm` tags are used by the OpenStreetMap
+# fallback.
+# ----------------------------------------------------------------------------
+[[categories]]
+key = "cafe"
+label = "Cafe"
+queries = ["cafe", "coffee shop"]
+match = ["cafe", "coffee", "tea house", "tea room", "bakery", "dessert", "patisserie", "bistro", "juice", "ice cream", "bubble tea", "creperie", "chocolate"]
+osm = ['["amenity"="cafe"]', '["amenity"="ice_cream"]']
+
+[[categories]]
+key = "restaurant"
+label = "Restaurant"
+queries = ["restaurant", "rooftop restaurant"]
+match = ["restaurant", "dining", "bar", "pub", "lounge", "grill", "biryani", "eatery", "dhaba", "kitchen", "pizzeria", "steakhouse", "buffet", "brewery", "brewpub", "gastropub", "cuisine", "food"]
+osm = ['["amenity"="restaurant"]', '["amenity"="bar"]', '["amenity"="pub"]']
+
+[[categories]]
+key = "banquet_venue"
+label = "Banquet / Event venue"
+queries = ["banquet hall", "wedding venue", "event venue"]
+match = ["banquet", "wedding", "event venue", "event space", "party hall", "community center", "community centre", "convention", "marriage", "function hall", "auditorium", "conference", "lawn", "party venue"]
+osm = ['["amenity"="events_venue"]', '["amenity"="conference_centre"]', '["amenity"="community_centre"]']
+
+[[categories]]
+key = "event_planner"
+label = "Event planner / Decorator"
+queries = ["event management company", "wedding planner", "event decorator"]
+match = ["event", "wedding planner", "wedding service", "planner", "decorator", "decoration", "party planner", "party equipment", "caterer", "catering"]
+osm = ['["office"="event_management"]', '["craft"="caterer"]']
+
+[[categories]]
+key = "interior_designer"
+label = "Interior designer / Architect"
+queries = ["interior designer", "architect"]
+match = ["interior", "designer", "architect", "decor", "landscap", "design studio", "design agency"]
+osm = ['["office"="architect"]', '["shop"="interior_decoration"]', '["craft"="interior_designer"]']
+
+[[categories]]
+key = "hotel"
+label = "Hotel / Resort"
+queries = ["hotel", "resort"]
+match = ["hotel", "resort", "inn", "lodge", "guest house", "homestay", "serviced apartment", "villa"]
+osm = ['["tourism"="hotel"]', '["tourism"="resort"]', '["tourism"="guest_house"]']
+
+[[categories]]
+key = "coworking"
+label = "Coworking / Office space"
+queries = ["coworking space"]
+match = ["coworking", "co-working", "shared office", "office space", "business center", "business centre", "virtual office"]
+osm = ['["amenity"="coworking_space"]', '["office"="coworking"]']
+
+[[categories]]
+key = "education"
+label = "School / College"
+enabled = false   # set to true to include schools and colleges
+queries = ["college", "school"]
+match = ["school", "college", "university", "institute", "academy"]
+osm = ['["amenity"="school"]', '["amenity"="college"]', '["amenity"="university"]']

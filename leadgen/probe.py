@@ -98,6 +98,47 @@ def probe_gmaps(http_curl: Http, http_plain: Http, quick: bool) -> dict:
     return results
 
 
+def probe_gmaps_structure(http: Http) -> dict:
+    """Print which positions of a result record hold numbers/short strings (to track format changes)."""
+    from .providers.gmaps import build_pb, decode_payload, extract_business_arrays
+    line("=" * 70)
+    line("GOOGLE MAPS RECORD STRUCTURE")
+    out = {}
+    for q, lat, lng in (("cafe", 22.62, 88.45), ("restaurant", 22.553, 88.352), ("banquet hall", 22.50, 88.36)):
+        params = {"tbm": "map", "authuser": "0", "hl": "en", "gl": "in", "q": q, "pb": build_pb(lat, lng, 15)}
+        try:
+            r = http.get("https://www.google.com/search", params=params, timeout=25, interval=3, retries=0, block_statuses=())
+        except Exception as exc:  # noqa: BLE001
+            line(f"  {q}: FAILED {exc}")
+            continue
+        low = r.text.lower()
+        kw = {k: low.count(k) for k in ("permanently closed", "temporarily closed", "closed_permanently", "permanently",
+                                         "temporarily", "opens soon", "reviews")}
+        line(f"  query={q}: HTTP {r.status}, keyword counts in raw body: {kw}")
+        try:
+            arrays, method = extract_business_arrays(decode_payload(r.text))
+        except Exception as exc:  # noqa: BLE001
+            line(f"   parse failed: {exc}")
+            continue
+        for biz in arrays[:2]:
+            line(f"   record '{biz[11] if len(biz) > 11 else '?'}' len={len(biz)}")
+            for i, v in enumerate(biz):
+                if isinstance(v, (int, float)) and not isinstance(v, bool):
+                    line(f"     [{i}] num {v}")
+                elif isinstance(v, str) and len(v) <= 80:
+                    line(f"     [{i}] str {v!r}")
+                elif isinstance(v, list) and i in (4, 34, 88, 203, 32, 100, 142, 157, 175):
+                    line(f"     [{i}] list {json.dumps(v)[:300]}")
+        for biz in arrays:
+            for i in (34, 88, 203):
+                pass
+        # search for review counts: in [4] array, print full [4] for 3 records
+        for biz in arrays[:5]:
+            line(f"   [4]={json.dumps(biz[4] if len(biz) > 4 else None)[:200]}")
+        out[q] = kw
+    return out
+
+
 def probe_websites(http: Http, urls: list[str]) -> dict:
     line("=" * 70)
     line("BUSINESS WEBSITES (homepage fetch + contact markers)")
@@ -187,6 +228,32 @@ def probe_search(http: Http) -> dict:
     return out
 
 
+def probe_search_parsers(http: Http) -> dict:
+    from .enrich.search import WebSearch
+    line("=" * 70)
+    line("SEARCH PARSERS (parsed results per engine)")
+    ws = WebSearch(http, interval=2.5, jitter=1.0)
+    out = {}
+    queries = ['"Flurys" Park Street Kolkata instagram', '"Afraa Deli" Kolkata instagram', '"Jamuna Banquets" Kolkata facebook',
+               '"The Alam Interiors" Kolkata linkedin']
+    for engine in ws.engines:
+        for q in queries[:3] if engine != "ddg_html" else queries:
+            try:
+                r, parser = ws._fetch(engine, q)
+                res = parser(r.text)
+                line(f"  {engine:9s} q={q!r}: HTTP {r.status} parsed={len(res)}")
+                for x in res[:6]:
+                    line(f"      - {x.title[:70]!r} -> {x.url[:90]}")
+                if not res:
+                    snippet = re.sub(r"\s+", " ", r.text[:1500])
+                    line(f"      (no results) head: {snippet[:400]}")
+                out[f"{engine}:{q}"] = len(res)
+            except Exception as exc:  # noqa: BLE001
+                line(f"  {engine:9s} q={q!r}: FAILED {type(exc).__name__}: {exc}")
+                out[f"{engine}:{q}"] = str(exc)[:120]
+    return out
+
+
 def probe_overpass(http: Http) -> dict:
     line("=" * 70)
     line("OPENSTREETMAP OVERPASS")
@@ -219,6 +286,10 @@ def main(argv=None) -> int:
     main_http = http_curl or http_plain
     if not only or "gmaps" in only:
         report["gmaps"] = probe_gmaps(http_curl, http_plain, args.quick)
+    if "structure" in only:
+        report["structure"] = probe_gmaps_structure(main_http)
+    if "parsers" in only:
+        report["parsers"] = probe_search_parsers(main_http)
     if not only or "web" in only:
         report["web"] = probe_websites(main_http, report.get("gmaps", {}).get("_sample_websites", []) or
                                        ["https://www.flurys.com/", "https://www.peterhook.in/"])
