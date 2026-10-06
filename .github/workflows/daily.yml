@@ -71,6 +71,7 @@ jobs:
       - name: Check configuration and secrets
         run: python -m leadgen doctor --secrets-only
       - name: Restore campaign state
+        id: restore
         if: env.PERSIST == 'true'
         env:
           GH_TOKEN: ${{ github.token }}
@@ -91,13 +92,32 @@ jobs:
           PUBKEY_B64: ${{ inputs.maintainer_pubkey }}
         run: bash scripts/ci/encrypted_sample.sh
       - name: Save campaign state (encrypted)
-        if: always() && env.PERSIST == 'true'
+        # Only after a successful restore, so a failed restore never replaces the saved state.
+        if: always() && env.PERSIST == 'true' && steps.restore.outcome == 'success'
         run: bash scripts/ci/state.sh pack
       - name: Upload encrypted state
-        if: always() && env.PERSIST == 'true'
+        if: always() && env.PERSIST == 'true' && steps.restore.outcome == 'success'
         uses: actions/upload-artifact@v4
         with:
           name: pp-state
           path: state-out/pp-state.enc
           retention-days: 90
           if-no-files-found: ignore
+
+  keepalive:
+    # GitHub pauses schedules in public repositories after 60 days without a
+    # commit. Re-enabling the workflow through the API once a day prevents
+    # that (the same method as the keepalive-workflow action).
+    if: github.event_name == 'schedule' && github.event.schedule == '37 0 * * *' && vars.PP_ENABLED == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      actions: write
+    steps:
+      - name: Keep the daily schedule active
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh api -X PUT "repos/${{ github.repository }}/actions/workflows/daily.yml/enable" \
+            && echo "schedule kept active" \
+            || echo "::warning::Could not refresh the schedule; if runs stop after 60 days, re-enable the workflow in the Actions tab."

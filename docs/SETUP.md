@@ -109,6 +109,13 @@ done twice.
   websites, search engines, Instagram and OpenStreetMap from GitHub's servers).
 * Actions > **State persistence self-test** proves the encrypted save/restore chain works.
 * Actions > **Tests** runs automatically on every change (offline test suite).
+* GitHub pauses schedules in public repositories after 60 days without a commit.
+  The workflow refreshes itself every morning to prevent that (job *keepalive*).
+  If runs ever stop anyway, open Actions > **Daily lead generation** and click
+  **Enable workflow**.
+* If the campaign memory can't be restored (for example after `PP_STATE_KEY`
+  was changed), the run stops with a red cross and the saved memory is left
+  untouched. Put the old key back, or delete the `pp-state` artifacts to start fresh.
 
 ## About the repository being public
 
