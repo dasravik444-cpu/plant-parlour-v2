@@ -160,7 +160,28 @@ def overture_taxonomy(cfg):
          "codes used for places whose NAME says interior/banquet/coworking/decorator/event/architect")
 
 
+def overture_lookup(cfg):
+    """Codes of specific places (quality checks of the category mapping)."""
+    rel = [r for r in releases(OVERTURE) if re.match(r"\d{4}-\d{2}-\d{2}", r)][-1]
+    xmin, ymin, xmax, ymax = bbox(cfg)
+    c = con()
+    c.execute("SET s3_region='us-west-2';")
+    names = ["Assam Petro Chemicals", "International Telecom Network", "Arihant Building", "Dhall Agencies", "Sri Gopal Travels",
+             "ABM Sales Corporation", "Roshni Advertising", "AkantoApon", "B You", "RedMagma Productions", "Universal Fountain",
+             "Afreen Restaurant and Banquet", "The new estern caterer", "Jamuna Banquets", "The Legacy Banquet"]
+    show(c, f"SELECT names.primary AS name, taxonomy.primary AS code, basic_category, taxonomy.alternates AS alt, round(confidence, 2) conf "
+            f"FROM read_parquet('s3://{OVERTURE}/release/{rel}/theme=places/type=place/*', hive_partitioning=1) "
+            f"WHERE bbox.xmin BETWEEN {xmin} AND {xmax} AND bbox.ymin BETWEEN {ymin} AND {ymax} "
+            f"AND names.primary IN ({', '.join(repr(n) for n in names)})", "codes of reviewed places")
+    show(c, f"SELECT taxonomy.primary AS code, count(*) n FROM read_parquet('s3://{OVERTURE}/release/{rel}/theme=places/type=place/*', "
+            f"hive_partitioning=1) WHERE bbox.xmin BETWEEN {xmin} AND {xmax} AND bbox.ymin BETWEEN {ymin} AND {ymax} "
+            f"AND basic_category = 'event_or_party_service' GROUP BY 1 ORDER BY 2 DESC LIMIT 30", "codes under basic event_or_party_service")
+
+
 if __name__ == "__main__":
+    if len(sys.argv) > 2 and sys.argv[2] == "lookup":
+        overture_lookup(load_config(sys.argv[1]))
+        sys.exit(0)
     if len(sys.argv) > 2 and sys.argv[2] == "taxonomy":
         overture_taxonomy(load_config(sys.argv[1]))
         sys.exit(0)
