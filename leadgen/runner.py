@@ -34,6 +34,8 @@ from .planner import PlanMismatch, Planner
 from .providers.base import Place, ProviderUnavailable
 from .providers.gmaps import GoogleMapsSearch
 from .providers.osm import Overpass
+from .providers.overture import SOURCE_URL as OVERTURE_URL
+from .providers.overture import OvertureStore
 from .providers.places_api import PlacesAPI
 from .quality import is_aggregator, is_chain, is_link_hub, is_qualified, match_category, name_score
 from .report import contact_coverage, lead_row, markdown_summary, masked_samples, plan_rows
@@ -42,7 +44,7 @@ from .util import get_logger, jdump, jload, local_date, norm_text
 log = get_logger("runner")
 
 PRIORITY = {"site": 1, "social": 2, "insta": 3, "li": 4}
-PROVIDER_SOURCE = {"gmaps": "google_maps", "places_api": "places_api", "osm": "osm"}
+PROVIDER_SOURCE = {"gmaps": "google_maps", "places_api": "places_api", "osm": "osm", "overture": "overture"}
 LINKEDIN_CATEGORIES = {"interior_designer", "event_planner", "coworking", "banquet_venue", "hotel"}
 
 
@@ -80,7 +82,7 @@ class Runner:
     def __init__(self, cfg: Config, db: DB, *, budget_minutes: float | None = None, target: int | None = None,
                  use_sheets: bool = True, discovery: bool = True, max_searches: int | None = None,
                  http: Http | None = None, gmaps=None, search: WebSearch | None = None, sheets_factory=None,
-                 workers: int | None = None, now_fn=time.time, enrich: bool = True):
+                 workers: int | None = None, now_fn=time.time, enrich: bool = True, overture=None):
         self.cfg, self.db = cfg, db
         rt = cfg["runtime"]
         self.budget_s = float(budget_minutes if budget_minutes is not None else rt["time_budget_minutes"]) * 60
@@ -92,6 +94,7 @@ class Runner:
         self.enrich_enabled = enrich
         self.workers = int(workers or cfg["enrich"]["workers"])
         self._http_override, self._gmaps_override, self._search_override = http, gmaps, search
+        self._overture_override = overture
         self.sheets_factory = sheets_factory
         self.now = now_fn
         self.stop_requested = False
@@ -111,10 +114,15 @@ class Runner:
     # ------------------------------------------------------------------ setup
     def _setup_clients(self):
         cfg = self.cfg
+        from .config import BOT_NAME, BOT_UA
+
+        bot = {"user_agent": BOT_UA, "robot_name": BOT_NAME} if cfg.open_data else {}
         self.http = self._http_override or Http(use_curl_cffi=cfg["runtime"]["use_curl_cffi"], deadline=self.deadline,
-                                                default_interval=float(cfg["enrich"]["site_interval_s"]))
+                                                default_interval=float(cfg["enrich"]["site_interval_s"]), **bot)
         if self._http_override is not None:
             self.http.deadline = self.deadline
+            if cfg.open_data:
+                self.http.user_agent, self.http.robot_name = BOT_UA, BOT_NAME
         d = cfg["discovery"]
         self.gmaps = self._gmaps_override or GoogleMapsSearch(self.http, lang=cfg["campaign"]["language"],
                                                               region=cfg["campaign"]["region"], variant=d["gmaps_variant"],
@@ -123,6 +131,7 @@ class Runner:
                                     monthly_cap=int(d["places_api_monthly_cap"]), lang=cfg["campaign"]["language"],
                                     region=self.region)
         self.overpass = Overpass(self.http, timeout=90)
+        self.overture = self._overture_override or OvertureStore(self.db, cfg)
         self.search = self._search_override or WebSearch(self.http, interval=float(cfg["enrich"]["search_interval_s"]))
         self.mx = MXChecker(enabled=bool(cfg["enrich"]["check_email_mx"]))
 
@@ -399,6 +408,10 @@ class Runner:
                     if not self.places_api.enabled() or self.http.breaker("places_api").is_open():
                         continue
                     places, meta = self.places_api.search(p["query"], p["lat"], p["lng"], p["size_km"])
+                elif prov == "overture":
+                    # Open data: one local lookup per square and category answers all its queries.
+                    places = [] if not p.get("primary", True) else self.overture.search_cell(p["lat"], p["lng"], p["size_km"], p["category"])
+                    meta = {"pages": [{"valid": len(places)}]}
                 elif prov == "osm":
                     places, meta = self._osm_search(p)
                 provider = prov
@@ -455,8 +468,8 @@ class Runner:
         self.stats[f"searches_{provider}"] += 1
         self.stats[f"returned_{provider}"] += len(places)
         self.parts_worked.add(task["part_id"])
-        if provider != "gmaps":
-            msg = f"Google Maps unavailable for some searches; used fallback provider '{provider}'"
+        if provider != self.cfg["discovery"]["providers"][0]:
+            msg = f"main discovery source unavailable for some searches; used fallback provider '{provider}'"
             if msg not in self.warnings:
                 self.warnings.append(msg)
         log.info("search %-22s @%.4f,%.4f z%s via %s: %d results, %d new", f"'{p['query']}'", p["lat"], p["lng"], p["zoom"], provider, len(places), new)
@@ -493,9 +506,10 @@ class Runner:
                 self._merge_into(existing, pl, provider)
                 self.stats["seen_again"] += 1
                 continue
-            category = match_category(pl.categories, payload["category"], self.cfg.categories)
+            category = pl.extra.get("category") or match_category(pl.categories, payload["category"], self.cfg.categories)
             excluded = None
-            chain = is_chain(pl.name, filters["exclude_chains"])
+            chain = is_chain(pl.name, filters["exclude_chains"]) or (is_chain(pl.extra["brand"], filters["exclude_chains"])
+                                                                     if pl.extra.get("brand") else None)
             if filters["exclude_closed"] and pl.closed:
                 excluded = f"closed ({pl.status_text or 'per listing'})"
             elif chain:
@@ -547,6 +561,10 @@ class Runner:
         self._qualify(key)
 
     def _provider_contacts(self, key: str, pl: Place, provider: str):
+        if provider == "overture":
+            if pl.extra:
+                self._open_data_contacts(key, pl)
+            return
         src = PROVIDER_SOURCE.get(provider, provider)
         conf = "high" if provider in ("gmaps", "places_api") else "medium"
         for raw in (pl.phone_intl, pl.phone):
@@ -571,6 +589,32 @@ class Runner:
                     parsed = parse_phone(v, self.region)
                     if parsed:
                         self.db.add_contact(key, "whatsapp", parsed[0], source="osm", source_url=pl.maps_url, confidence="medium", evidence=k)
+
+    def _open_data_contacts(self, key: str, pl: Place):
+        """Phones, emails and social pages the business published on its own Facebook page/listings, as
+        released by Overture Maps (openly licensed). Kept with the source datasets as evidence."""
+        from .enrich.emails import normalize_email, suspicious_email
+
+        ex = pl.extra
+        datasets = ",".join(ex.get("datasets") or []) or "overture"
+        socials = [s for s in (canonical_social(u) for u in ex.get("socials") or []) if s]
+        page = next((u for k, u in socials if k == "facebook"), "") or OVERTURE_URL
+        ev = f"Overture Maps open data ({datasets}), record {ex.get('record', '')}"[:250]
+        for raw in (ex.get("phones") or [])[:4]:
+            parsed = parse_phone(raw, self.region)
+            if parsed:
+                self.db.add_contact(key, "phone", parsed[0], label=parsed[1], source="overture", source_url=page,
+                                    confidence="medium", evidence=ev)
+        for raw in (ex.get("emails") or [])[:3]:
+            e = normalize_email(raw)
+            if e:
+                why = suspicious_email(e)
+                self.db.add_contact(key, "email", e, label=why or "", source="overture", source_url=page,
+                                    confidence="low" if why else "medium", evidence=ev)
+        for kind, url in socials[:4]:
+            # A Facebook page delivered by Meta's own dataset is the business's page by construction.
+            conf = "high" if kind == "facebook" and "meta" in datasets else "medium"
+            self.db.add_contact(key, kind, url, source="overture", source_url=url, confidence=conf, evidence=ev)
 
     def _plan_enrichment(self, key: str, name: str, website: str, area: str, category: str | None, part_id,
                          website_only: bool = False):

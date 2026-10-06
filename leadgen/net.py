@@ -194,7 +194,12 @@ class _Pacer:
 # --------------------------------------------------------------------------
 class Http:
     def __init__(self, *, use_curl_cffi: bool = True, impersonate: str = "chrome", deadline: float | None = None,
-                 default_interval: float = 2.0, max_bytes: int = 3_000_000):
+                 default_interval: float = 2.0, max_bytes: int = 3_000_000, user_agent: str | None = None,
+                 robot_name: str = "*"):
+        """user_agent/robot_name: crawl openly as a named bot (open-data mode) instead of as a browser;
+        robots.txt rules are then read for that bot name."""
+        self.user_agent = user_agent
+        self.robot_name = robot_name
         self.use_curl = bool(use_curl_cffi and HAVE_CURL_CFFI)
         self.impersonate = impersonate
         self.deadline = deadline
@@ -270,6 +275,8 @@ class Http:
             raise Permanent("invalid URL", url=url)
         max_bytes = max_bytes or self.max_bytes
         hdrs = dict(BROWSER_HEADERS)
+        if self.user_agent:
+            hdrs["User-Agent"] = self.user_agent
         if headers:
             hdrs.update(headers)
         attempt = 0
@@ -375,8 +382,9 @@ class Http:
         return Transient(text[:200], url=url)
 
     # -- robots.txt -----------------------------------------------------------
-    def robots_allowed(self, url: str, user_agent: str = "*") -> tuple[bool, float]:
+    def robots_allowed(self, url: str, user_agent: str | None = None) -> tuple[bool, float]:
         """Return (allowed, crawl_delay). Follows Google's rules for robots.txt fetch outcomes."""
+        user_agent = user_agent or self.robot_name
         parts = urlsplit(url)
         base = f"{parts.scheme}://{parts.netloc}"
         with self._robots_lock:

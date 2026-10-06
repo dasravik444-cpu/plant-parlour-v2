@@ -183,7 +183,17 @@ def cmd_doctor(cfg, args) -> int:
         else:
             print(f"[{'OK' if sid else 'WARN'}] PP_SHEET_ID " + ("set" if sid else "not set (leads stay in the database only)"))
             print(f"[{'OK' if has_key else 'WARN'}] service-account key " + ("set" if has_key else "not set"))
-    print(f"[INFO] GOOGLE_PLACES_API_KEY {'set (official fallback enabled)' if os.environ.get('GOOGLE_PLACES_API_KEY') else 'not set (optional)'}")
+    if cfg.open_data:
+        print("[OK] compliance mode: open-data (Overture Maps + OpenStreetMap + the businesses' own websites; "
+              "no scraping of Google, search engines or Instagram)")
+        try:
+            import duckdb  # noqa: F401
+            print("[OK] duckdb installed (reads Overture Maps open data)")
+        except ImportError:
+            print("[WARN] duckdb not installed - open-data discovery falls back to OpenStreetMap (pip install duckdb)")
+    else:
+        print("[WARN] compliance mode: standard (scrapes Google Maps and search engines - against Google's terms)")
+        print(f"[INFO] GOOGLE_PLACES_API_KEY {'set (official fallback enabled)' if os.environ.get('GOOGLE_PLACES_API_KEY') else 'not set (optional)'}")
     if args.secrets_only:
         return 0 if ok else 1
     if os.path.exists(args.db):

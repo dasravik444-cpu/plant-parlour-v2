@@ -67,7 +67,8 @@ jobs:
       - name: Install
         run: |
           pip install -r requirements.txt
-          pip install -r requirements-extra.txt || echo "curl_cffi unavailable - falling back to requests"
+          pip install "duckdb>=1.1" || echo "duckdb unavailable - open-data discovery falls back to OpenStreetMap"
+          pip install "curl_cffi>=0.7" || echo "curl_cffi unavailable - falling back to requests"
       - name: Check configuration and secrets
         run: python -m leadgen doctor --secrets-only
       - name: Restore campaign state

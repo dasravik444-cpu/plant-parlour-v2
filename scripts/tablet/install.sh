@@ -35,7 +35,8 @@ echo "== Creating virtual environment in $VENV"
 "$PY" -m venv "$VENV"
 "$VENV/bin/pip" install --upgrade pip >/dev/null
 "$VENV/bin/pip" install -r "$APP_DIR/requirements.txt"
-"$VENV/bin/pip" install -r "$APP_DIR/requirements-extra.txt" || echo "(optional curl_cffi not available here - using requests)"
+"$VENV/bin/pip" install "duckdb>=1.1" || echo "(optional duckdb not available here - open-data discovery will use OpenStreetMap only)"
+"$VENV/bin/pip" install "curl_cffi>=0.7" || echo "(optional curl_cffi not available here - using requests)"
 
 ENV_FILE="$DATA_DIR/secrets.env"
 if [ ! -f "$ENV_FILE" ]; then

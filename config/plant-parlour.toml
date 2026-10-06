@@ -28,7 +28,23 @@ max_cell_km = 16.0       # largest search square (rural areas)
 split_threshold = 60     # split a square while it holds more than this many mapped businesses
 finish_scheduled_part = true   # always finish the day's part, even after the target is met
 
+[compliance]
+# "open-data" (default): leads come only from openly licensed data - Overture Maps (businesses' own
+#   Facebook pages via Meta, Microsoft, Foursquare...; CDLA-Permissive-2.0) and OpenStreetMap - plus each
+#   business's own website, crawled openly as "PlantParlourLeadBot" and only where robots.txt allows.
+#   Nothing is scraped from Google Maps, Google/Yahoo search, Instagram or Facebook.
+# "standard": also scrapes Google Maps and web search engines. More complete (and ratings/reviews),
+#   but against Google's terms of service. Change only if you accept that.
+mode = "open-data"
+
+[open_data]
+min_confidence = 0.4     # Overture's 0-1 estimate that the place exists; lower = more but staler places
+refresh_days = 30        # re-download the area when Overture publishes a newer release (monthly)
+exclude_codes = ["internet_cafe", "event_photography_service", "photographer", "party_supply_store", "hostel",
+                 "nursery_and_gardening_store"]
+
 [discovery]
+# standard mode only (open-data mode always uses ["overture", "osm"])
 providers = ["gmaps", "places_api", "osm"]   # tried in this order; later ones are fallbacks
 max_pages = 3            # Google Maps result pages per search (20 results each)
 gmaps_interval_s = 4.0   # polite delay between Google Maps requests
@@ -90,6 +106,7 @@ label = "Cafe"
 queries = ["cafe", "coffee shop"]
 match = ["cafe", "coffee", "tea house", "tea room", "bakery", "dessert", "patisserie", "bistro", "juice", "ice cream", "bubble tea", "creperie", "chocolate"]
 osm = ['["amenity"="cafe"]', '["amenity"="ice_cream"]']
+overture = ["cafe", "coffee_shop", "tea_room", "bubble_tea_shop", "smoothie_juice_bar", "bakery", "dessert_shop"]
 
 [[categories]]
 key = "restaurant"
@@ -97,6 +114,7 @@ label = "Restaurant"
 queries = ["restaurant", "rooftop restaurant"]
 match = ["restaurant", "dining", "bar", "pub", "lounge", "grill", "biryani", "eatery", "dhaba", "kitchen", "pizzeria", "steakhouse", "buffet", "brewery", "brewpub", "gastropub", "cuisine", "food"]
 osm = ['["amenity"="restaurant"]', '["amenity"="bar"]', '["amenity"="pub"]']
+overture = ["restaurant", "*_restaurant", "fast_food_restaurant", "casual_eatery", "bar", "lounge"]
 
 [[categories]]
 key = "banquet_venue"
@@ -104,6 +122,8 @@ label = "Banquet / Event venue"
 queries = ["banquet hall", "wedding venue", "event venue"]
 match = ["banquet", "wedding", "event venue", "event space", "party hall", "community center", "community centre", "convention", "marriage", "function hall", "auditorium", "conference", "lawn", "party venue"]
 osm = ['["amenity"="events_venue"]', '["amenity"="conference_centre"]', '["amenity"="community_centre"]']
+overture = ["event_venue", "banquet_hall", "wedding_venue", "convention_center", "party_and_event_planning", "wedding_planning"]
+# (Overture files banquet halls and event planners under the same code; names with banquet/hall/bhavan/lawn... go here)
 
 [[categories]]
 key = "event_planner"
@@ -111,14 +131,25 @@ label = "Event planner / Decorator"
 queries = ["event management company", "wedding planner", "event decorator"]
 match = ["event", "wedding planner", "wedding service", "planner", "decorator", "decoration", "party planner", "party equipment", "caterer", "catering"]
 osm = ['["office"="event_management"]', '["craft"="caterer"]']
+overture = ["party_and_event_planning", "wedding_planning", "event_or_party_service", "caterer"]
 
 [[categories]]
 key = "interior_designer"
 label = "Interior designer / Architect"
 queries = ["interior designer", "architect"]
 min_density = 2   # skip squares with almost no mapped businesses
-match = ["interior", "interior designer", "architect", "landscap*", "design studio", "design agency", "decorator"]
+match = ["interior", "interior designer", "architect", "design studio", "design agency", "decorator"]
 osm = ['["office"="architect"]', '["shop"="interior_decoration"]', '["craft"="interior_designer"]']
+overture = ["interior_design", "architectural_designer", "architect"]
+
+[[categories]]
+key = "landscaper"
+label = "Landscaper / Gardener"
+queries = ["landscaping company", "garden designer"]
+min_density = 3
+match = ["landscap*", "garden design*", "gardener", "gardening service", "lawn care"]
+osm = ['["craft"="gardener"]', '["office"="landscape_architect"]']
+overture = ["landscaping", "landscape_architect", "gardener"]
 
 [[categories]]
 key = "hotel"
@@ -126,6 +157,7 @@ label = "Hotel / Resort"
 queries = ["hotel", "resort"]
 match = ["hotel", "resort", "inn", "lodge", "guest house", "homestay", "serviced apartment", "villa"]
 osm = ['["tourism"="hotel"]', '["tourism"="resort"]', '["tourism"="guest_house"]']
+overture = ["hotel", "resort", "lodge", "lodging", "guest_house", "bed_and_breakfast", "motel"]
 
 [[categories]]
 key = "coworking"
@@ -134,6 +166,7 @@ queries = ["coworking space"]
 min_density = 5
 match = ["coworking", "co-working", "shared office", "office space", "business center", "business centre", "virtual office"]
 osm = ['["amenity"="coworking_space"]', '["office"="coworking"]']
+overture = ["coworking_space"]
 
 [[categories]]
 key = "education"

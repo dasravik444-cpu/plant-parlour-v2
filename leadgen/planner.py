@@ -67,8 +67,14 @@ class Planner:
         stored = self.db.get_meta("plan_fingerprint")
         if self.has_plan() and not force:
             if stored != fp:
-                raise PlanMismatch("The area/plan/categories in the config changed since the plan was made. "
-                                   "Run `python -m leadgen plan --force` to re-plan (found leads are kept).")
+                old = jload(stored, {}) or {}
+                new = self.cfg.plan_fingerprint()
+                same_geo = {k: v for k, v in old.items() if k != "queries"} == {k: v for k, v in jload(fp, {}).items() if k != "queries"}
+                if not (old and same_geo):
+                    raise PlanMismatch("The area or plan settings in the config changed since the plan was made. "
+                                       "Run `python -m leadgen plan --force` to re-plan (found leads are kept).")
+                self._update_categories(old.get("queries") or [], new["queries"])
+                self.db.set_meta("plan_fingerprint", fp)
             synthetic = (self.db.get_meta("plan_density_source") or "").startswith("synthetic")
             started = self.db.scalar("SELECT COUNT(*) FROM tasks WHERE kind='search' AND status!='pending'", default=0)
             if synthetic and not started and self.http is not None:
@@ -78,6 +84,36 @@ class Planner:
                 return s if s else before
             return self.summary()
         return self.build(fp)
+
+    def _update_categories(self, old_q: list, new_q: list) -> None:
+        """Categories or their search words changed: add the new searches to every square and drop the
+        pending ones that are no longer wanted. The parts, dates and leads stay as they are."""
+        old_pairs = {(c, q) for c, qs in old_q for q in qs}
+        new_pairs = [(c, q) for c, qs in new_q for q in qs]
+        first = {c: qs[0] for c, qs in new_q if qs}
+        cats = {c["key"]: c for c in self.cfg.categories}
+        version = int(self.db.get_meta("plan_version", "1") or 1)
+        osm_density = (self.db.get_meta("plan_density_source") or "") == "openstreetmap"
+        added = removed = 0
+        with self.db.tx():
+            for c, q in old_pairs - set(new_pairs):
+                cur = self.db.conn.execute(
+                    "DELETE FROM tasks WHERE kind='search' AND status='pending' AND json_extract(payload,'$.category')=? "
+                    "AND json_extract(payload,'$.query')=?", (c, q))
+                removed += cur.rowcount
+            todo = [(c, q) for c, q in new_pairs if (c, q) not in old_pairs]
+            if todo:
+                for cell in self.db.q("SELECT * FROM cells ORDER BY part_id, seq"):
+                    for i, (c, q) in enumerate(todo):
+                        if cell["osm_count"] < int(cats.get(c, {}).get("min_density", 0)) and osm_density:
+                            continue
+                        if self.db.enqueue("search", f"search:v{version}:{cell['id']}:{c}:{q}",
+                                           {"cell_id": cell["id"], "lat": cell["lat"], "lng": cell["lng"], "size_km": cell["size_km"],
+                                            "zoom": cell["zoom"], "category": c, "query": q, "primary": q == first.get(c),
+                                            "primary_key": f"search:v{version}:{cell['id']}:{c}:{first.get(c, q)}"},
+                                           seq=cell["seq"] * 100 + 60 + i, part_id=cell["part_id"]):
+                            added += 1
+        log.info("planner: categories changed - %d searches added, %d pending searches removed (no re-plan needed)", added, removed)
 
     def start_date(self) -> str:
         sd = str(self.cfg["campaign"].get("start_date") or "").strip()

@@ -30,6 +30,18 @@ CREATE TABLE IF NOT EXISTS parts (
   started_on TEXT, finished_on TEXT
 );
 
+CREATE TABLE IF NOT EXISTS open_places (
+  id TEXT PRIMARY KEY,                -- Overture place id (stable across releases)
+  release TEXT NOT NULL,
+  name TEXT NOT NULL,
+  lat REAL NOT NULL, lng REAL NOT NULL,
+  code TEXT, basic TEXT, alternates TEXT,
+  phones TEXT, emails TEXT, websites TEXT, socials TEXT,
+  street TEXT, locality TEXT, postcode TEXT,
+  confidence REAL, brand TEXT, status TEXT, datasets TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_open_places_lat ON open_places(lat, lng);
+
 CREATE TABLE IF NOT EXISTS cells (
   id INTEGER PRIMARY KEY,
   part_id INTEGER NOT NULL REFERENCES parts(id),

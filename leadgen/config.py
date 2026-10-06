@@ -40,7 +40,18 @@ DEFAULTS: dict = {
     "sheets": {"enabled": True, "spreadsheet_id": "", "leads_tab": "Leads", "plan_tab": "Plan",
                "report_tab": "Daily Report", "checkpoint_minutes": 20},
     "runtime": {"time_budget_minutes": 80, "use_curl_cffi": True, "safety_margin_minutes": 6},
+    # open-data: only openly licensed data (Overture Maps, OpenStreetMap) + the businesses' own websites,
+    #            crawled openly as a named bot. No scraping of Google Maps, search engines or Instagram.
+    # standard:  also Google Maps and web search engines (more complete, but against Google's terms).
+    "compliance": {"mode": "open-data"},
+    "open_data": {"min_confidence": 0.4, "refresh_days": 30,
+                  "exclude_codes": ["internet_cafe", "event_photography_service", "photographer", "party_supply_store",
+                                    "hostel", "nursery_and_gardening_store"]},
 }
+
+OPEN_DATA_PROVIDERS = ("overture", "osm")
+BOT_NAME = "PlantParlourLeadBot"
+BOT_UA = f"Mozilla/5.0 (compatible; {BOT_NAME}/2.0; +https://github.com/dasravik444-cpu/plant-parlour-v2)"
 
 
 def _merge(base: dict, override: dict) -> dict:
@@ -76,6 +87,10 @@ class Config(dict):
         return os.environ.get(name, "").strip()
 
     @property
+    def open_data(self) -> bool:
+        return self["compliance"]["mode"] == "open-data"
+
+    @property
     def sheet_id(self) -> str:
         return self.secret("PP_SHEET_ID") or str(self["sheets"].get("spreadsheet_id") or "").strip()
 
@@ -99,7 +114,18 @@ def load_config(path: str) -> Config:
     cfg = Config(_merge(DEFAULTS, raw))
     cfg.path = path
     validate(cfg)
+    apply_compliance(cfg)
     return cfg
+
+
+def apply_compliance(cfg: Config) -> None:
+    """In open-data mode, switch off every source whose terms forbid automated collection or storage."""
+    if not cfg.open_data:
+        return
+    cfg["discovery"]["providers"] = list(OPEN_DATA_PROVIDERS)   # [discovery].providers applies to standard mode
+    cfg["enrich"]["social_search"] = False        # no scraping of search engines
+    cfg["enrich"]["instagram_profile"] = False    # no scraping of Instagram
+    cfg["runtime"]["use_curl_cffi"] = False        # no browser disguise: we crawl as a named bot
 
 
 def validate(cfg: Config) -> None:
@@ -153,10 +179,13 @@ def validate(cfg: Config) -> None:
         cat.setdefault("label", k.replace("_", " ").title())
         cat.setdefault("match", [])
         cat.setdefault("osm", [])
+        cat.setdefault("overture", [])
         cat.setdefault("enabled", True)
     for prov in cfg["discovery"]["providers"]:
-        if prov not in ("gmaps", "places_api", "osm"):
+        if prov not in ("gmaps", "places_api", "osm", "overture"):
             errors.append(f"unknown discovery provider '{prov}'")
+    if cfg["compliance"]["mode"] not in ("open-data", "standard"):
+        errors.append('compliance.mode must be "open-data" or "standard"')
     if not isinstance(cfg["enrich"]["workers"], int) or not 1 <= cfg["enrich"]["workers"] <= 16:
         errors.append("enrich.workers must be 1..16")
     if not 5 <= float(cfg["runtime"]["time_budget_minutes"]) <= 340:

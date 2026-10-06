@@ -14,7 +14,7 @@ from .util import fmt_local, jload, mask_value
 
 SOURCE_NAMES = {"google_maps": "Google Maps", "website": "website", "jsonld": "website (structured data)",
                 "search": "web search", "instagram": "Instagram profile", "places_api": "Google Places API",
-                "osm": "OpenStreetMap"}
+                "osm": "OpenStreetMap", "overture": "Overture Maps (open data)"}
 KIND_ORDER = ["phone", "whatsapp", "email", "instagram", "facebook", "linkedin", "twitter", "youtube"]
 
 

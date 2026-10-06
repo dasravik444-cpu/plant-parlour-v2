@@ -6,7 +6,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 import pytest  # noqa: E402
 
-from leadgen.config import Config, DEFAULTS, _merge, validate  # noqa: E402
+from leadgen.config import Config, DEFAULTS, _merge, apply_compliance, validate  # noqa: E402
 
 TEST_CONFIG = {
     "campaign": {"id": "test-campaign", "client": "Test", "timezone": "Asia/Kolkata", "country": "IN", "start_date": ""},
@@ -17,6 +17,7 @@ TEST_CONFIG = {
     "enrich": {"workers": 2, "check_email_mx": False, "social_kinds": ["instagram", "facebook", "linkedin"]},
     "sheets": {"enabled": True, "spreadsheet_id": "", "leads_tab": "Leads", "plan_tab": "Plan", "report_tab": "Daily Report"},
     "runtime": {"time_budget_minutes": 5, "safety_margin_minutes": 0.5, "use_curl_cffi": False},
+    "compliance": {"mode": "standard"},     # most tests exercise the full pipeline; open-data tests override this
     "categories": [
         {"key": "cafe", "label": "Cafe", "queries": ["cafe", "coffee shop"], "match": ["cafe", "coffee", "bakery"],
          "osm": ['["amenity"="cafe"]']},
@@ -30,6 +31,7 @@ def make_config(**overrides) -> Config:
     raw = _merge(TEST_CONFIG, overrides)
     cfg = Config(_merge(DEFAULTS, raw))
     validate(cfg)
+    apply_compliance(cfg)
     return cfg
 
 

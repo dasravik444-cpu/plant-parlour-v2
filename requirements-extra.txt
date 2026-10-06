@@ -2,3 +2,6 @@
 # Has binary wheels for x86_64 and aarch64 Linux (GitHub Actions, PRoot Ubuntu).
 # If it fails to install on a device, the system falls back to `requests`.
 curl_cffi>=0.7
+# Reads the Overture Maps open-data places (open-data mode). Wheels for x86_64 and aarch64 Linux
+# (GitHub Actions, PRoot Ubuntu on the tablet); without it discovery falls back to OpenStreetMap.
+duckdb>=1.1
