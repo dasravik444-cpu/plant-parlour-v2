@@ -9,12 +9,16 @@ VENV="$DATA_DIR/venv"
 mkdir -p "$DATA_DIR/logs" "$DATA_DIR/state"
 
 echo "== Installing system packages"
-if command -v pkg >/dev/null 2>&1 && [ -n "${PREFIX:-}" ]; then
+if [ "${SKIP_SYSTEM_PACKAGES:-0}" = "1" ]; then
+  echo "(skipping system packages)"
+elif command -v pkg >/dev/null 2>&1 && [ -n "${PREFIX:-}" ]; then
   # Native Termux
-  pkg install -y python openssl git cronie termux-api 2>/dev/null || pkg install -y python openssl git cronie
+  pkg install -y python openssl git cronie termux-api 2>/dev/null || pkg install -y python openssl git cronie \
+    || echo "WARNING: pkg install failed - continuing with what is installed"
 elif command -v apt-get >/dev/null 2>&1; then
   # Ubuntu (proot-distro) - you are normally root here
-  apt-get update -y && apt-get install -y python3 python3-venv python3-pip openssl git cron
+  { apt-get update -y && apt-get install -y python3 python3-venv python3-pip openssl git cron; } \
+    || echo "WARNING: apt-get failed - continuing with what is installed"
 else
   echo "Unknown environment: install Python 3.11+, openssl and git yourself, then re-run." >&2
 fi

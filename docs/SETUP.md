@@ -46,9 +46,10 @@ Repository **dasravik444-cpu/plant-parlour-v2** > **Settings** > **Secrets and v
 
 Same page, tab **Variables** > **New repository variable**: name `PP_ENABLED`, value `true`.
 
-From now on GitHub runs the system **every day at 06:07 IST** (plus a short
-catch-up check at 14:07 IST that only does work if the morning run fell short).
-If a run fails, GitHub emails the repository owner.
+From now on GitHub runs the system **every day at 06:07 IST**, with follow-up
+runs at 14:07 and 20:07 IST that finish the day's part and the enrichment work
+(websites, Instagram/Facebook searches) and stop within a minute when nothing is
+left. If a run fails, GitHub emails the repository owner.
 
 ## 4. First run (recommended now)
 
@@ -104,7 +105,10 @@ done twice.
 * Daily: glance at the **Daily Report** tab, or the email from GitHub if a run failed.
 * `Health` column: `gmaps:ok` means Google Maps answered normally; `paused` means
   it was temporarily blocked and the run used fallbacks or deferred the work.
-* Live diagnostics any time: Actions > **Live source probe** > Run workflow.
+* Live diagnostics any time: Actions > **Live source probe** > Run workflow (checks Google Maps,
+  websites, search engines, Instagram and OpenStreetMap from GitHub's servers).
+* Actions > **State persistence self-test** proves the encrypted save/restore chain works.
+* Actions > **Tests** runs automatically on every change (offline test suite).
 
 ## About the repository being public
 

@@ -58,7 +58,15 @@ flowchart LR
 
 A run continues until **today's new leads reach the daily target (150)** and
 **today's part is finished**, or the time budget runs out. Unfinished work
-carries over to the next day automatically.
+carries over automatically. GitHub runs it three times a day (06:07, 14:07 and
+20:07 IST); the later runs finish the day's part and then work through the
+enrichment queue, and exit quickly when nothing is left. The day's first ~150
+leads are enriched first, so every day's batch gets full contact details quickly.
+
+Live trial (6 Oct 2026, 20 searches in central Kolkata, about 10 minutes): 671 new businesses, 538
+leads; phone 530, email 172, Instagram 172, WhatsApp 70. Google Maps returns far
+more businesses per search than the daily target, so the target is normally
+exceeded while each part is covered.
 
 ## Quick start
 
