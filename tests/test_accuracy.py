@@ -159,6 +159,7 @@ def test_contact_person_only_when_the_site_says_so():
     assert find_people("Meet Priya Das, Founder of Bloom Cafe") == [("Priya Das", "founder", "Meet Priya Das, Founder of Bloom Cafe")]
     assert [p[0] for p in find_people("Founded in 2015 by Ankit Jain and his wife")] == ["Ankit Jain"]
     assert find_people("Our Team Contact Us Home About") == [] and find_people("The Owner: Kzar Banquet") == []
+    assert [p[0] for p in find_people("Contact Us Raju Ahamed, Proprietor")] == ["Raju Ahamed"]
     html = ('<html><head><title>Bloom Cafe</title><script type="application/ld+json">{"@type": "CafeOrCoffeeShop", '
             '"name": "Bloom Cafe", "founder": {"@type": "Person", "name": "Riya Sen"}}</script></head>'
             '<body><p>Proprietor: Mr. Amit Ghosh</p><p>Designed by Akash Web</p></body></html>')

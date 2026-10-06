@@ -73,8 +73,9 @@ def find_people(text: str) -> list[tuple[str, str, str]]:
             else:
                 name, role = m.group(1), "founder"
             words = name.split()
-            while words and words[0].lower() in ("meet", "hello", "hi", "dear", "with", "from", "by", "says", "ask"):
-                words.pop(0)                                   # "Meet Priya Das, Founder" -> "Priya Das"
+            while words and (words[0].lower() in ("meet", "hello", "hi", "dear", "with", "from", "by", "says", "ask", "us")
+                             or words[0].lower() in NOT_NAME_WORDS):
+                words.pop(0)                    # "Meet Priya Das, Founder" / "Contact Us Raju Ahamed, Proprietor"
             name = " ".join(words)
             if valid_person_name(name) and name.lower() not in seen:
                 seen.add(name.lower())

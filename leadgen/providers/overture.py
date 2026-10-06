@@ -36,10 +36,13 @@ EVENT_CODES = {"party_and_event_planning", "wedding_planning"}
 # Facebook pages of all kinds of businesses use "party_and_event_planning" (a petrochemical trader, a travel
 # agent...): for that code the name, e-mail or website must show the business is really about events.
 NOISY_CODES = {"party_and_event_planning"}
-EVENT_WORDS = re.compile(r"(event|wedding|shaadi|shadi|biye|marriage|banquet|hall|bhavan|bhawan|bhaban|lawn|party|parties|"
-                         r"decor|planner|management|cater|tent|shamiana|pandal|light|sound|\bdj\b|flower|floral|"
+EVENT_WORDS = re.compile(r"\b(event|wedding|shaadi|shadi|biye|marriage|banquet|hall|bhavan|bhawan|bhaban|lawn|party|parties|"
+                         r"decor|planner|management|cater|tent|shamiana|pandal|light|sound|dj\b|flower|floral|"
                          r"celebrat|function|ceremon|venue|mandap|entertain|production|occasion|utsav|convention|resort|"
                          r"palace|farm ?house|club|community|anushthan|birthday)", re.I)
+# In e-mail addresses and web addresses words run together ("royalbanquethall@..."): longer words only.
+EVENT_WORDS_JOINED = re.compile(r"(event|wedding|banquet|decorat|cater|planner|shamiana|celebrat|production|entertain|"
+                                r"marriage|ceremon|convention|birthday)", re.I)
 
 
 def latest_release(timeout: float = 30.0) -> str:
@@ -125,7 +128,7 @@ class OvertureStore:
         `hints`: the place's e-mails and websites, used as evidence for noisy codes."""
         if code in self.exclude:
             return None
-        if code in NOISY_CODES and not EVENT_WORDS.search(f"{name} {hints}"):
+        if code in NOISY_CODES and not (EVENT_WORDS.search(name or "") or EVENT_WORDS_JOINED.search(hints or "")):
             return None
         cats = self.cfg.categories
         if code in EVENT_CODES:

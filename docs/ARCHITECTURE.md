@@ -152,10 +152,13 @@ duplicating them (and adopts their Lead IDs).
 ## Data columns (Leads tab)
 
 `Lead ID, Date Added, Business Name, Category, Area, Address, Phones, WhatsApp,
-Emails, Instagram, Facebook, LinkedIn, Website, Google Maps, Rating, Priority,
-Description, Contact Sources, Other Contacts (unverified), Plan Part, Last
+Emails, Instagram, Facebook, LinkedIn, Contact Person, Website, Google Maps, Rating,
+Priority, Description, Contact Sources, Other Contacts (unverified), Plan Part, Last
 Updated, Key, Status`. The system writes *Status* only for new rows and never
-touches columns to its right.
+touches columns to its right. *Contact Person* holds an owner/founder name only when
+the business's own website states it explicitly (structured-data `founder`,
+"Founder: X", "X, Owner", "Founded by X"); it is never guessed. A sheet created
+with an older column layout is upgraded in place (columns inserted, data kept).
 
 ## Live-verified behaviour (2026-10-06, GitHub Actions)
 

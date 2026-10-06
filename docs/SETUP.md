@@ -57,8 +57,9 @@ left. If a run fails, GitHub emails the repository owner.
 It takes up to about 80 minutes. Then open your sheet:
 
 * **Leads**: one row per business with phones, WhatsApp, emails, Instagram,
-  Facebook, LinkedIn, website, Google Maps link, rating, priority and *Contact
-  Sources* (where each detail was found).
+  Facebook, LinkedIn, contact person (when the business's website names its
+  owner/founder), website, Google Maps link, priority and *Contact Sources*
+  (where each detail was found).
 * **Plan**: the 30 parts, their dates, status and leads found.
 * **Daily Report**: one line per run (searches, new leads, contact coverage, warnings).
 
