@@ -70,8 +70,13 @@ The run's own page (Actions > the run > *Summary*) shows the same daily report.
 
 Edit `config/plant-parlour.toml` (on GitHub: open the file > pencil icon):
 
-* `daily_target`, `days`, `radius_km`, `center`, categories and their search words,
-  the list of chains to skip, time budget.
+* `daily_target` (`"auto"` by default = area total / days, about 1,000/day for Kolkata;
+  or a fixed number like 150), `days`, `radius_km`, `center`, categories and their
+  search words, the list of chains to skip, time budget.
+* `role_email_candidates` (on by default): for a lead that has its own website but no
+  published e-mail, the system adds `info@`/`contact@` as **unverified** candidates
+  (only when the domain can receive mail). They appear in *Other Contacts (unverified)*,
+  never in the *Emails* column - verify before using them. Set to `false` to switch off.
 * Changing the **area or number of days** needs a re-plan: run the workflow
   manually with **replan = true**. Leads already found are kept. Adding or
   removing **categories** or search words does not: the next run adds the new

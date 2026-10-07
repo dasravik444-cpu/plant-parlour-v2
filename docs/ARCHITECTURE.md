@@ -20,7 +20,11 @@
    from the start date, so re-runs and missed days never skip territory.
 6. **Always report.** Every run ends with Sheets sync and a report, even when
    cut short; important failures make the run exit non-zero, and GitHub emails you.
-7. **No silent zeros.** An empty Google Maps answer before Maps has returned
+7. **Emails: observed, or clearly flagged.** The *Emails* column holds only addresses
+   read from a public source. For a lead with its own website but no published e-mail,
+   `info@`/`contact@` candidates (MX-checked) go in the *unverified* column, labelled as
+   guessed - never presented as confirmed.
+8. **No silent zeros.** An empty Google Maps answer before Maps has returned
    anything in the run is not trusted (it may be a format change or a soft
    block): the search is kept for later, and ten in a row stop discovery and
    turn the run red. Result records that no longer parse count as errors.

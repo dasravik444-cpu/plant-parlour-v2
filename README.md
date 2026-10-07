@@ -60,12 +60,14 @@ flowchart LR
    in place, never duplicates, never overwrites your *Status* column), plus a
    *Plan* tab and a *Daily Report* tab.
 
-A run continues until **today's new leads reach the daily target (150)** and
+A run continues until **today's new leads reach the daily target** and
 **today's part is finished**, or the time budget runs out. Unfinished work
 carries over automatically. GitHub runs it three times a day (06:07, 14:07 and
 20:07 IST); the later runs finish the day's part and then work through the
-enrichment queue, and exit quickly when nothing is left. The day's first ~150
-leads are enriched first, so every day's batch gets full contact details quickly.
+enrichment queue, and exit quickly when nothing is left. The day's first batch of leads is enriched first, so each day's leads get full contact
+details quickly. The **daily target is automatic** by default: on day 1 the system counts the
+businesses in the whole area and aims for *area total / number of days* each day (about 1,000/day
+for the Kolkata pilot), so the campaign covers the whole area.
 
 Live trials (6 Oct 2026, from GitHub Actions, central Kolkata):
 
@@ -125,7 +127,7 @@ python -m leadgen export-csv --out leads.csv
 |---|---|
 | Overture Maps open data (default source) | Works (tested 2026-10-06): ~30,000 relevant businesses in the 100 km circle across 13 categories, ~95% with a phone, ~60% with an email, ~98% with a Facebook page. Updated monthly. Some listings are stale; low-confidence places are skipped. No ratings. |
 | Google Maps search (standard mode only) | Works, more complete (ratings, coworking), but against Google's terms of service. Off by default. |
-| Business websites (email, phones, WhatsApp links, social links) | Works; about half of listings have a website. |
+| Business websites (email, phones, WhatsApp links, social links) | Works; crawls the homepage + /contact, /about etc. and schema.org data. About half of businesses have a website. |
 | Web search for Instagram/Facebook/LinkedIn/website | Yahoo works (200+ lookups in a 19-minute run); DuckDuckGo rate-limits after about 1 query (slow backup). Matches must pass the accuracy rules; uncertain ones are marked unverified. |
 | Instagram profile bios (emails/phones) | Blocked when logged out from data-centre IPs (HTTP 401). Instagram *handles* are still found via websites, Maps and search. May work on the tablet. |
 | LinkedIn emails | Not collected (needs paid tools/login, against LinkedIn's terms). Company page URLs are collected. |
