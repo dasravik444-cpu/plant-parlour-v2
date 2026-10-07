@@ -261,3 +261,42 @@ def test_role_email_candidates_are_unverified_and_gated(monkeypatch, tmp_path):
     # the guessed addresses never appear in the verified Emails column
     row_brew = lead_row(db, db.get_place(db.one("SELECT key FROM places WHERE name='Brew Corner'")["key"]), cfg)
     assert row_brew["Emails"] == "" and "info@brewcorner.in (role address" in row_brew["Other Contacts (unverified)"]
+
+
+def test_role_email_candidates_added_even_after_the_main_deadline(monkeypatch, tmp_path):
+    """Regression (commit 8e512cd): a big run spends the whole time budget in the main loop,
+    so by the time finalize runs now() is already past the deadline. Role-email finalize has
+    its OWN small budget and must still add candidates - it must not be gated on the main
+    deadline, or large runs (the ones that most need role addresses) would add none."""
+    from urllib.parse import urlsplit  # noqa: F401 - kept parallel to the gated test
+    from helpers import FakeHttp
+    from leadgen.db import DB
+    from leadgen.enrich.emails import MXChecker
+    from leadgen.runner import Runner
+    from test_open_data import od_config, row, store
+
+    monkeypatch.setattr(MXChecker, "has_mx", lambda self, d: d == "brewcorner.in")
+    # Role candidates OFF during the run, so the normal finalize adds none - we add them by hand after.
+    cfg = od_config(enrich={"role_email_candidates": False, "check_email_mx": True, "website": True,
+                            "social_search": False, "instagram_profile": False, "workers": 2})
+    rows = [row(1, "Brew Corner", "cafe", websites=["https://brewcorner.in"])]
+    db = DB(str(tmp_path / "s.sqlite"))
+
+    def world(method, url, params, data):
+        return (404, "", "text/html")                  # no site content, so no published email is found
+
+    runner = Runner(cfg, db, http=FakeHttp(world), use_sheets=False, overture=store(db, cfg, rows=rows))
+    code, s = runner.run()
+    assert code == 0, s
+    key = db.one("SELECT key FROM places WHERE name='Brew Corner'")["key"]
+    assert not [c for c in db.contacts_for(key) if c["source"] == "guess"]   # none yet (feature was off)
+
+    # Reproduce the big-run situation: feature on, and the main loop's deadline already in the past.
+    runner.cfg["enrich"]["role_email_candidates"] = True
+    runner.deadline = runner.now() - 1.0                 # "out of time" for the main loop
+    assert runner.now() >= runner.deadline               # the exact condition the old code tripped on
+    runner._add_role_candidates()
+
+    guesses = {c["value"] for c in db.contacts_for(key) if c["source"] == "guess"}
+    assert guesses == {"info@brewcorner.in", "contact@brewcorner.in"}
+    assert runner.stats["role_email_candidates"] == 2
