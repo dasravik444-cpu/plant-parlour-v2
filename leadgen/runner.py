@@ -200,7 +200,10 @@ class Runner:
             else:
                 log.info("plan day %d: outside the planned period (finishing any remaining work)", self.plan_day)
             self._loop()
-            self._add_role_candidates()
+            try:
+                self._add_role_candidates()
+            except Exception as exc:  # noqa: BLE001 - a candidate-generation slip must not fail the run
+                log.warning("role-email candidates skipped: %s", exc)
             planner.refresh_part_status(self.today)
         except PlanMismatch as exc:
             self.warnings.append(str(exc))
