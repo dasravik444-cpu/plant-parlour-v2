@@ -1,15 +1,17 @@
 name: Daily lead generation
 
 # Runs every day by itself once the repository variable PP_ENABLED is "true"
-# (Settings > Secrets and variables > Actions > Variables). The afternoon and
-# evening runs continue unfinished work (searches of the day's part, then the
-# enrichment queue) and end quickly when nothing is left.
+# (Settings > Secrets and variables > Actions > Variables). The follow-up runs
+# continue unfinished work (searches of the day's part, then the enrichment
+# queue) and end within a minute or two when nothing is left.
+# GitHub drops scheduled runs now and then when it is busy (it skipped the very
+# first 06:07 slot), so there are six slots a day: if one is dropped, the next
+# one does the day's work.
 # Manual runs: Actions tab > Daily lead generation > Run workflow.
 on:
   schedule:
-    - cron: "37 0 * * *"   # 06:07 IST  main run
-    - cron: "37 8 * * *"   # 14:07 IST  catch-up (continues the day's part if unfinished)
-    - cron: "37 14 * * *"  # 20:07 IST  enrichment shift (websites/Instagram/Facebook for the day's leads)
+    - cron: "37 0 * * *"        # 06:07 IST  main run (+ keepalive)
+    - cron: "37 3-15/3 * * *"   # 09:07, 12:07, 15:07, 18:07, 21:07 IST  follow-ups / catch-up
   workflow_dispatch:
     inputs:
       budget_minutes:

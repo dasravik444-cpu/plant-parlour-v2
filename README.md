@@ -62,8 +62,9 @@ flowchart LR
 
 A run continues until **today's new leads reach the daily target** and
 **today's part is finished**, or the time budget runs out. Unfinished work
-carries over automatically. GitHub runs it three times a day (06:07, 14:07 and
-20:07 IST); the later runs finish the day's part and then work through the
+carries over automatically. GitHub runs it six times a day (06:07 IST, then every
+3 hours until 21:07 IST - GitHub occasionally drops a scheduled run, so the later
+slots catch up); the later runs finish the day's part and then work through the
 enrichment queue, and exit quickly when nothing is left. The day's first batch of leads is enriched first, so each day's leads get full contact
 details quickly. The **daily target is automatic** by default: on day 1 the system counts the
 businesses in the whole area and aims for *area total / number of days* each day (about 1,000/day
@@ -100,7 +101,7 @@ Uncertain finds are not thrown away: they appear in *Other Contacts
 | Google Sheets fails | keeps the leads in the encrypted campaign memory and writes them next run; the run turns red |
 | A run is cancelled or times out | saves its progress first; the next run continues where it stopped |
 | The GitHub machine dies mid-run (nothing saved) | the next run repeats that run's work from the last saved state; leads already copied to the sheet (20-minute checkpoints) are updated, not duplicated |
-| GitHub skips a scheduled run | the next of the three daily runs continues; the calendar never skips territory |
+| GitHub skips a scheduled run | the next of the six daily runs (every 3 hours) continues; the calendar never skips territory |
 | The campaign memory is lost | starts over without duplicating sheet rows (rows are matched by Key, Lead IDs are kept) |
 | 60 days without commits | the daily *keepalive* job stops GitHub from pausing the schedule |
 

@@ -48,9 +48,11 @@ Repository **dasravik444-cpu/plant-parlour-v2** > **Settings** > **Secrets and v
 Same page, tab **Variables** > **New repository variable**: name `PP_ENABLED`, value `true`.
 
 From now on GitHub runs the system **every day at 06:07 IST**, with follow-up
-runs at 14:07 and 20:07 IST that finish the day's part and the enrichment work
-(websites, Instagram/Facebook searches) and stop within a minute when nothing is
-left. If a run fails, GitHub emails the repository owner.
+runs every 3 hours (09:07, 12:07, 15:07, 18:07, 21:07 IST) that finish the day's
+part and the enrichment work (websites, contact pages) and stop within a minute
+or two when nothing is left. GitHub occasionally drops a scheduled run when it is
+busy; the next slot then does the work. If a run fails, GitHub emails the
+repository owner.
 
 ## 4. First run (recommended now)
 
