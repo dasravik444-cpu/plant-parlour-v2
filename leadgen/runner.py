@@ -264,11 +264,13 @@ class Runner:
 
         mx = self.mx if getattr(self.mx, "enabled", False) else MXChecker(enabled=True)
         rows = self.db.q("SELECT key, website FROM places WHERE qualified=1 AND excluded IS NULL AND merged_into IS NULL "
-                         "AND qualified_date=? AND website!=''", (self.today,))
+                         "AND qualified_date=? AND website!='' ORDER BY lead_no DESC", (self.today,))
+        # Own small time budget (the main loop has usually spent the deadline by now); leave room for the sheet sync.
+        end = self.now() + max(5.0, min(90.0, self.margin_s * 0.4))
         checked: dict = {}
         added = 0
         for r in rows:
-            if self.stop_requested or self.now() >= self.deadline:
+            if self.stop_requested or self.now() >= end:
                 break
             if self.db.one("SELECT 1 FROM contacts WHERE place_key=? AND kind='email' AND confidence!='low'", (r["key"],)):
                 continue
