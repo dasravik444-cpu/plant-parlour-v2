@@ -4,9 +4,9 @@ name: Daily lead generation
 # (Settings > Secrets and variables > Actions > Variables). The follow-up runs
 # continue unfinished work (searches of the day's part, then the enrichment
 # queue) and end within a minute or two when nothing is left.
-# GitHub drops scheduled runs now and then when it is busy (it skipped the very
-# first 06:07 slot), so there are six slots a day: if one is dropped, the next
-# one does the day's work.
+# GitHub delays scheduled runs when it is busy - sometimes by hours (the very
+# first 06:07 run started at 11:52) - and can drop them, so there are six slots
+# a day: whichever arrives first does the day's work, the rest exit in a minute.
 # Manual runs: Actions tab > Daily lead generation > Run workflow.
 on:
   schedule:

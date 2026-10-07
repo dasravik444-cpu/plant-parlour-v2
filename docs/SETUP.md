@@ -50,9 +50,9 @@ Same page, tab **Variables** > **New repository variable**: name `PP_ENABLED`, v
 From now on GitHub runs the system **every day at 06:07 IST**, with follow-up
 runs every 3 hours (09:07, 12:07, 15:07, 18:07, 21:07 IST) that finish the day's
 part and the enrichment work (websites, contact pages) and stop within a minute
-or two when nothing is left. GitHub occasionally drops a scheduled run when it is
-busy; the next slot then does the work. If a run fails, GitHub emails the
-repository owner.
+or two when nothing is left. When GitHub is busy it delays scheduled runs,
+sometimes by hours, and occasionally drops one; whichever slot arrives first does
+the day's work. If a run fails, GitHub emails the repository owner.
 
 ## 4. First run (recommended now)
 

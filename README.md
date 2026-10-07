@@ -63,8 +63,8 @@ flowchart LR
 A run continues until **today's new leads reach the daily target** and
 **today's part is finished**, or the time budget runs out. Unfinished work
 carries over automatically. GitHub runs it six times a day (06:07 IST, then every
-3 hours until 21:07 IST - GitHub occasionally drops a scheduled run, so the later
-slots catch up); the later runs finish the day's part and then work through the
+3 hours until 21:07 IST - GitHub sometimes delays a scheduled run by hours or drops
+it, so the later slots catch up); the later runs finish the day's part and then work through the
 enrichment queue, and exit quickly when nothing is left. The day's first batch of leads is enriched first, so each day's leads get full contact
 details quickly. The **daily target is automatic** by default: on day 1 the system counts the
 businesses in the whole area and aims for *area total / number of days* each day (about 1,000/day
