@@ -88,7 +88,9 @@ class Runner:
         rt = cfg["runtime"]
         self.budget_s = float(budget_minutes if budget_minutes is not None else rt["time_budget_minutes"]) * 60
         self.margin_s = min(float(rt["safety_margin_minutes"]) * 60, self.budget_s * 0.3)
-        self.target = int(target if target is not None else cfg["plan"]["daily_target"])
+        dt = target if target is not None else cfg["plan"]["daily_target"]
+        self._auto_target = str(dt) == "auto"
+        self.target = 150 if self._auto_target else int(dt)
         self.use_sheets = use_sheets and cfg["sheets"]["enabled"]
         self.discovery_requested = discovery
         self.max_searches = max_searches
@@ -189,6 +191,7 @@ class Runner:
                 log.info("plan: %d parts, %d search squares, %d searches (density source: %s)", plan["parts"], plan["cells"],
                          plan["search_tasks"], plan["density_source"])
                 db.set_meta("plan_logged", "1")
+            self._resolve_auto_target(plan)
             self.plan_day = planner.day_number(self.today)
             sched = planner.scheduled_part(self.today)
             self.sched = dict(sched) if sched else None
@@ -197,6 +200,7 @@ class Runner:
             else:
                 log.info("plan day %d: outside the planned period (finishing any remaining work)", self.plan_day)
             self._loop()
+            self._add_role_candidates()
             planner.refresh_part_status(self.today)
         except PlanMismatch as exc:
             self.warnings.append(str(exc))
@@ -244,6 +248,62 @@ class Runner:
         db.finish_run(self.run_id, status, summary)
         self._write_outputs(summary)
         return code, summary
+
+    def _add_role_candidates(self) -> None:
+        """For a lead with its own website but no published e-mail, add info@/contact@ as UNVERIFIED
+        candidates when the domain can receive mail. The standard 'role-based' method - never shown as
+        confirmed (kept in the Other Contacts column), so nothing is invented in the Emails column."""
+        if not self.cfg["enrich"].get("role_email_candidates"):
+            return
+        from .enrich.emails import FREE_PROVIDERS, normalize_email
+        from .enrich.extract import host_of, registrable
+        from .quality import is_aggregator
+
+        mx = self.mx if getattr(self.mx, "enabled", False) else MXChecker(enabled=True)
+        rows = self.db.q("SELECT key, website FROM places WHERE qualified=1 AND excluded IS NULL AND merged_into IS NULL "
+                         "AND qualified_date=? AND website!=''", (self.today,))
+        checked: dict = {}
+        added = 0
+        for r in rows:
+            if self.stop_requested or self.now() >= self.deadline:
+                break
+            if self.db.one("SELECT 1 FROM contacts WHERE place_key=? AND kind='email' AND confidence!='low'", (r["key"],)):
+                continue
+            host = host_of(r["website"])
+            dom = registrable(host) if host else ""
+            if not dom or dom in FREE_PROVIDERS or is_aggregator(r["website"]):
+                continue
+            if dom not in checked:
+                try:
+                    checked[dom] = mx.has_mx(dom)
+                except Exception:  # noqa: BLE001
+                    checked[dom] = None
+            if checked[dom] is not True:
+                continue
+            for local in ("info", "contact"):
+                e = normalize_email(f"{local}@{dom}")
+                if e and self.db.add_contact(r["key"], "email", e, label="role address (guessed; domain accepts mail - verify before use)",
+                                             source="guess", source_url=r["website"], confidence="low", evidence="role-based address, not published"):
+                    added += 1
+        if added:
+            self.stats["role_email_candidates"] = added
+            log.info("added %d role-email candidates (unverified) for leads with a website but no published e-mail", added)
+
+    def _resolve_auto_target(self, plan: dict) -> None:
+        """daily_target = "auto": aim for (all businesses in the area / number of days) each day,
+        so the whole area is covered over the campaign. Each day's part already holds ~this many."""
+        if not self._auto_target:
+            return
+        days = max(1, int(plan.get("parts") or self.cfg["plan"]["days"] or 1))
+        total = 0
+        try:
+            total = self.overture.mapped_count()
+        except Exception as exc:  # noqa: BLE001 - never fail the run over the count
+            log.warning("auto target: could not count businesses (%s) - using 150/day", exc)
+        if total > 0:
+            import math
+            self.target = max(50, min(3000, math.ceil(total / days)))
+            log.info("auto daily target: %d businesses in the area / %d days = %d leads/day", total, days, self.target)
 
     # ------------------------------------------------------------------ loop
     def _loop(self):

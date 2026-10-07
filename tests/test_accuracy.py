@@ -194,3 +194,70 @@ def test_known_brand_is_a_chain_and_wikipedia_is_not_a_website(tmp_path):
     rows = [dict(row(1, "Monginis Cake Shop", "cafe"), brand="Monginis", brand_wikidata="Q6900993")]
     p = store(db, cfg, rows=rows).search_cell(22.58, 88.42, 2.0, "cafe")[0]
     assert p.extra["brand_known"] and p.extra["brand"] == "Monginis"
+
+
+def test_common_contact_paths_find_email_not_linked_on_homepage():
+    from leadgen.enrich.website import crawl_site
+    from helpers import FakeHttp
+    from urllib.parse import urlsplit
+
+    HOME = '<html><head><title>Bloom Cafe</title></head><body><h1>Welcome to Bloom Cafe</h1></body></html>'
+    CONTACT = '<html><body><p>Email us: hello@bloomcafe.in</p><p>Call 033 4000 2222</p></body></html>'
+
+    def router(method, url, params, data):
+        p = urlsplit(url).path
+        if p == "/robots.txt":
+            return (404, "", "text/html")
+        if p in ("/", ""):
+            return (200, HOME, "text/html")
+        if p.startswith("/contact"):
+            return (200, CONTACT, "text/html")
+        return (404, "", "text/html")
+    res = crawl_site(FakeHttp(router), "https://bloomcafe.in/", "Bloom Cafe")
+    emails = {c.value for c in res.contacts if c.kind == "email"}
+    assert "hello@bloomcafe.in" in emails          # found by probing /contact directly
+
+
+def test_microdata_email_and_phone_are_extracted():
+    from leadgen.enrich.extract import extract_page
+    html = ('<html><body><span itemprop="email">owner@shop.in</span>'
+            '<span itemprop="telephone">+91 98300 12345</span></body></html>')
+    found = {(f.kind, f.value) for f in extract_page(html, "https://shop.in/").found}
+    assert ("email", "owner@shop.in") in found and ("phone", "+919830012345") in found
+
+
+def test_role_email_candidates_are_unverified_and_gated(monkeypatch, tmp_path):
+    from urllib.parse import urlsplit
+    from helpers import FakeHttp
+    from leadgen.db import DB
+    from leadgen.enrich.emails import MXChecker
+    from leadgen.report import lead_row
+    from leadgen.runner import Runner
+    from test_open_data import od_config, row, store
+
+    monkeypatch.setattr(MXChecker, "has_mx", lambda self, d: d == "brewcorner.in")   # only this domain accepts mail
+    cfg = od_config(enrich={"role_email_candidates": True, "check_email_mx": True, "website": True,
+                            "social_search": False, "instagram_profile": False, "workers": 2})
+    rows = [row(1, "Brew Corner", "cafe", websites=["https://brewcorner.in"]),            # own site, MX ok -> candidates
+            row(2, "No MX Cafe", "cafe", dlat=0.002, websites=["https://nomxcafe.in"]),    # own site, no MX -> none
+            row(3, "Gmail Cafe", "cafe", dlng=0.002, emails=["real@gmail.com"])]           # already has an email -> none
+    db = DB(str(tmp_path / "s.sqlite"))
+
+    def world(method, url, params, data):
+        if urlsplit(url).path == "/robots.txt":
+            return (404, "", "text/html")
+        return (404, "", "text/html")                  # no site content, so no published email is found
+    code, s = Runner(cfg, db, http=FakeHttp(world), use_sheets=False, overture=store(db, cfg, rows=rows)).run()
+    assert code == 0, s
+
+    def emails(name, conf=None):
+        k = db.one("SELECT key FROM places WHERE name=?", (name,))["key"]
+        return {c["value"]: c for c in db.contacts_for(k) if c["kind"] == "email" and (conf is None or c["confidence"] == conf)}
+    brew = emails("Brew Corner")
+    assert set(brew) == {"info@brewcorner.in", "contact@brewcorner.in"}
+    assert all(c["confidence"] == "low" and c["source"] == "guess" for c in brew.values())
+    assert emails("No MX Cafe") == {}                   # domain can't receive mail -> not added
+    assert set(emails("Gmail Cafe")) == {"real@gmail.com"}   # already had a real email -> no guesses
+    # the guessed addresses never appear in the verified Emails column
+    row_brew = lead_row(db, db.get_place(db.one("SELECT key FROM places WHERE name='Brew Corner'")["key"]), cfg)
+    assert row_brew["Emails"] == "" and "info@brewcorner.in (role address" in row_brew["Other Contacts (unverified)"]

@@ -19,6 +19,9 @@ SPAM_MARKERS = re.compile(
     r"rtp\s+slot|agen\s+slot|bandar\s+(?:togel|slot|judi)|poker\s+online|maxwin|slot88|slot777|scatter\s+hitam|"
     r"sports?\s+betting|bet365|1xbet|satta\s+matka|link\s+alternatif)\b", re.I)
 TRACKING_PARAMS = re.compile(r"^(utm_[a-z]+|gclid|fbclid|gbraid|wbraid|msclkid|srsltid|_ga|mc_[a-z]+|ref|igshid)$", re.I)
+# Paths most small-business sites use for contact details, tried directly if not linked with obvious text.
+COMMON_CONTACT_PATHS = ["/contact", "/contact-us", "/contactus", "/contact-us/", "/about", "/about-us", "/reach-us",
+                        "/get-in-touch", "/connect", "/enquiry", "/reach-us/"]
 
 
 @dataclass
@@ -154,8 +157,12 @@ def crawl_site(http: Http, url: str, business_name: str, *, max_pages: int = 4, 
             res.title = pe.title
             res.description = pe.description or ""
             titles = [pe.title, pe.site_name, *pe.jsonld_names]
-            for link in rank_contact_links(pe.internal_links, max_pages - 1):
-                if link not in visited:
+            root = f"{urlsplit(r.url).scheme}://{urlsplit(r.url).netloc}"
+            ranked = rank_contact_links(pe.internal_links, max_pages - 1)
+            # Also try the usual contact/about paths directly - many sites don't link them with obvious text.
+            common = [root + c for c in COMMON_CONTACT_PATHS]
+            for link in ranked + [c for c in common if c not in ranked]:
+                if link not in visited and link not in queue:
                     queue.append(link)
         phones_here = {f.value for f in pe.found if f.kind == "phone"}
         if len(phones_here) >= 5:

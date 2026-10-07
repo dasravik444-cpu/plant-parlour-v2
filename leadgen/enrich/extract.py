@@ -262,6 +262,18 @@ def extract_page(html: str, url: str, region: str = "IN", contact_page: bool = F
                 if isinstance(fname, str) and valid_person_name(fname.strip()):
                     pe.add(Found("person", fname.strip(), "jsonld", "founder"))
 
+    # --- microdata / itemprop (schema.org without JSON-LD) ------------------
+    for el in soup.select('[itemprop="email"]'):
+        raw = el.get("content") or el.get("href") or el.get_text(" ", strip=True)
+        e = normalize_email(raw)
+        if e:
+            pe.add(Found("email", e, "microdata"))
+    for el in soup.select('[itemprop="telephone"]'):
+        raw = el.get("content") or el.get("href") or el.get_text(" ", strip=True)
+        p2 = parse_phone(raw, region)
+        if p2:
+            pe.add(Found("phone", p2[0], "microdata", p2[1]))
+
     # --- links ----------------------------------------------------------------
     for a in soup.find_all("a", href=True):
         href = a["href"].strip()

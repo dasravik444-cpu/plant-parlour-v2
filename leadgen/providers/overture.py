@@ -211,6 +211,16 @@ class OvertureStore:
                   jdump(list(r.get("datasets") or [])))
                  for r in rows if r.get("id") and r.get("lat") is not None and r.get("lng") is not None and (r.get("name") or "").strip()])
 
+    def mapped_count(self) -> int:
+        """How many stored businesses map to one of our categories (for the auto daily target)."""
+        self.ensure()
+        n = 0
+        for r in self.db.q("SELECT name, code, basic, emails, websites FROM open_places"):
+            hints = " ".join((jload(r["emails"], []) or []) + (jload(r["websites"], []) or []))
+            if self.category_for(r["code"] or "", r["basic"] or "", r["name"], hints):
+                n += 1
+        return n
+
     # -- search -------------------------------------------------------------------
     def search_cell(self, lat: float, lng: float, size_km: float, category: str) -> list[Place]:
         self.ensure()

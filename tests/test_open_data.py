@@ -264,3 +264,12 @@ def test_run_uses_foursquare_to_fill_a_missing_website(tmp_path):
     assert ("email", "hi@brewcorner.in") in contacts                            # ...which was then crawled for the email
     assert ("instagram", "https://www.instagram.com/brewcorner/") in contacts
     assert contacts[("instagram", "https://www.instagram.com/brewcorner/")]["source"] == "foursquare"
+
+
+def test_auto_daily_target_is_total_over_days(tmp_path):
+    cfg = od_config(plan={"days": 2, "daily_target": "auto", "min_cell_km": 1.0, "max_cell_km": 2.0, "split_threshold": 60})
+    db = DB(str(tmp_path / "s.sqlite"))
+    rows = [row(i, f"Cafe {i}", "cafe", dlat=(i % 20) * 0.0008, dlng=(i // 20) * 0.0008) for i in range(1, 201)]
+    code, s = Runner(cfg, db, http=FakeHttp(lambda *a: (404, "", "text/html")), use_sheets=False, enrich=False, overture=store(db, cfg, rows=rows)).run()
+    assert code == 0, s
+    assert s["target"] == 100          # 200 businesses / 2 days

@@ -34,10 +34,10 @@ DEFAULTS: dict = {
     "categories": [],
     "filters": {"exclude_chains": [], "exclude_name_words": [], "require_contact": True,
                 "exclude_closed": True, "allow_unmatched_categories": False},
-    "enrich": {"website": True, "max_pages_per_site": 4, "social_search": True,
+    "enrich": {"website": True, "max_pages_per_site": 6, "social_search": True,
                "social_kinds": ["instagram", "facebook", "linkedin"], "instagram_profile": True,
                "check_email_mx": True, "workers": 6, "search_interval_s": 4.5, "site_interval_s": 2.0,
-               "api_enrich": True},
+               "api_enrich": True, "role_email_candidates": True},
     "sheets": {"enabled": True, "spreadsheet_id": "", "leads_tab": "Leads", "plan_tab": "Plan",
                "report_tab": "Daily Report", "checkpoint_minutes": 20},
     "runtime": {"time_budget_minutes": 80, "use_curl_cffi": True, "safety_margin_minutes": 6},
@@ -173,8 +173,8 @@ def validate(cfg: Config) -> None:
     p = cfg["plan"]
     if not (p["days"] == "auto" or (isinstance(p["days"], int) and 1 <= p["days"] <= 365)):
         errors.append("plan.days must be an integer 1..365 or \"auto\"")
-    if not (isinstance(p["daily_target"], int) and 1 <= p["daily_target"] <= 2000):
-        errors.append("plan.daily_target must be an integer 1..2000")
+    if not (p["daily_target"] == "auto" or (isinstance(p["daily_target"], int) and 1 <= p["daily_target"] <= 5000)):
+        errors.append('plan.daily_target must be an integer 1..5000 or "auto"')
     if p["order"] not in ("center_out", "dense_first", "as_planned"):
         errors.append("plan.order must be center_out, dense_first or as_planned")
     if not 0.3 <= float(p["min_cell_km"]) <= float(p["max_cell_km"]) <= 50:
