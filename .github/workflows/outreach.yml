@@ -1,0 +1,78 @@
+name: Outreach (e-mail + WhatsApp queue)
+
+# Sends the day's outreach e-mails from a free Gmail account and builds the WhatsApp queue in the Google
+# Sheet, reading the leads from its Leads tab. Runs every hour in Indian business hours, Monday to Saturday,
+# once the repository variable OUTREACH_ENABLED is "true".
+# Nothing is sent until the repository variable OUTREACH_LIVE is "true" (or [outreach].mode = "live"):
+# before that every run is a dry-run that fills the "Email Preview" tab instead. See docs/OUTREACH.md.
+on:
+  schedule:
+    - cron: "41 4-12 * * 1-6"    # 10:11 to 18:11 IST, Monday to Saturday
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: "dry-run (nothing is sent) or live (empty = config / OUTREACH_LIVE variable)"
+        default: ""
+      max_emails:
+        description: "Send at most this many e-mails in this run (testing; empty = normal pacing)"
+        default: ""
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: outreach-${{ github.ref_name }}
+  cancel-in-progress: false
+
+jobs:
+  outreach:
+    if: github.event_name == 'workflow_dispatch' || vars.OUTREACH_ENABLED == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 50
+    env:
+      PP_STATE_KEY: ${{ secrets.PP_STATE_KEY }}
+      PP_SHEET_ID: ${{ secrets.PP_SHEET_ID }}
+      GOOGLE_SERVICE_ACCOUNT_JSON: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_JSON }}
+      OUTREACH_GMAIL_ADDRESS: ${{ secrets.OUTREACH_GMAIL_ADDRESS }}
+      OUTREACH_GMAIL_APP_PASSWORD: ${{ secrets.OUTREACH_GMAIL_APP_PASSWORD }}
+      OUTREACH_LIVE: ${{ vars.OUTREACH_LIVE }}
+      # The outreach memory is its own encrypted artifact, separate from the lead-generation memory.
+      STATE_DIR: outreach-state
+      DB_NAME: outreach.sqlite
+      ART_NAME: pp-outreach
+      PP_OUTREACH_DB: outreach-state/outreach.sqlite
+      PYTHONUNBUFFERED: "1"
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - name: Install
+        run: pip install -r requirements.txt
+      - name: Restore outreach state
+        id: restore
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: bash scripts/ci/state.sh restore
+      - name: Outreach run
+        run: |
+          args=(outreach)
+          if [ -n "${{ inputs.mode }}" ]; then args+=(--mode "${{ inputs.mode }}"); fi
+          if [ -n "${{ inputs.max_emails }}" ]; then args+=(--max-emails "${{ inputs.max_emails }}"); fi
+          python -m leadgen "${args[@]}"
+      - name: Save outreach state (encrypted)
+        # Only after a successful restore, so a failed restore never replaces the saved state.
+        if: always() && steps.restore.outcome == 'success'
+        run: bash scripts/ci/state.sh pack
+      - name: Upload encrypted state
+        if: always() && steps.restore.outcome == 'success'
+        uses: actions/upload-artifact@v4
+        with:
+          name: pp-outreach
+          path: state-out/pp-state.enc
+          retention-days: 90
+          if-no-files-found: ignore

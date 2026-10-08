@@ -48,6 +48,23 @@ DEFAULTS: dict = {
     "open_data": {"min_confidence": 0.4, "refresh_days": 30,
                   "exclude_codes": ["internet_cafe", "event_photography_service", "photographer", "party_supply_store",
                                     "hostel"]},
+    # Outreach (python -m leadgen outreach): e-mail sequences from a free Gmail account + a WhatsApp send queue.
+    "outreach": {
+        "enabled": True,
+        "mode": "dry-run",          # dry-run: plan + preview only | live: send (or repository variable OUTREACH_LIVE=true)
+        "sender": {"name": "", "business": "", "phone": "", "city": "", "notify_email": ""},
+        "email": {"enabled": True, "start_per_day": 15, "step": 5, "step_every_days": 3, "max_per_day": 40,
+                  "max_per_run": 8, "min_gap_seconds": 75, "max_gap_seconds": 210,
+                  "window_start": "10:00", "window_end": "18:30", "days": ["mon", "tue", "wed", "thu", "fri", "sat"],
+                  "skip_dates": [], "follow_up_days": [3, 7], "include_unverified": False, "one_per_domain": True,
+                  "pause_bounce_rate": 0.05, "pause_min_sends": 20, "max_bounces_per_day": 3, "run_budget_minutes": 35,
+                  "subjects": [], "first": "", "follow_ups": []},
+        "whatsapp": {"enabled": True, "daily_cap": 20, "include_mobiles": False, "message": "", "opted_in_message": ""},
+        "boost_categories": ["event_planner", "banquet_venue", "nursery_florist", "interior_designer", "landscaper", "hotel"],
+        "hooks": {}, "audience": {},
+        "tabs": {"outreach": "Outreach", "preview": "Email Preview", "replies": "Replies", "whatsapp": "WhatsApp Queue",
+                 "dnc": "Do Not Contact", "report": "Outreach Report"},
+    },
 }
 
 OPEN_DATA_PROVIDERS = ("overture", "osm")
@@ -144,6 +161,64 @@ def apply_compliance(cfg: Config) -> None:
     # standard: leave [discovery].providers and [enrich] exactly as written in the config.
 
 
+def _outreach_errors(o: dict) -> list[str]:
+    import re
+
+    errors = []
+    if o.get("mode") not in ("dry-run", "live"):
+        errors.append('outreach.mode must be "dry-run" or "live"')
+    e = o["email"]
+
+    def int_in(name, lo, hi):
+        v = e.get(name)
+        if not isinstance(v, int) or isinstance(v, bool) or not lo <= v <= hi:
+            errors.append(f"outreach.email.{name} must be a whole number {lo}..{hi}")
+
+    int_in("start_per_day", 1, 200)
+    int_in("step", 0, 50)
+    int_in("step_every_days", 1, 30)
+    int_in("max_per_day", 1, 400)      # a free Gmail account allows ~500/day; stay well below
+    int_in("max_per_run", 1, 50)
+    int_in("max_bounces_per_day", 1, 50)
+    int_in("pause_min_sends", 1, 1000)
+    try:
+        if not 20 <= float(e["min_gap_seconds"]) <= float(e["max_gap_seconds"]) <= 3600:
+            errors.append("outreach.email gaps must satisfy 20 <= min_gap_seconds <= max_gap_seconds <= 3600")
+    except (TypeError, ValueError):
+        errors.append("outreach.email gaps must be numbers")
+    times = []
+    for name in ("window_start", "window_end"):
+        m = re.fullmatch(r"([01]?\d|2[0-3]):([0-5]\d)", str(e.get(name, "")))
+        if not m:
+            errors.append(f"outreach.email.{name} must be HH:MM")
+        else:
+            times.append(int(m.group(1)) * 60 + int(m.group(2)))
+    if len(times) == 2 and times[0] >= times[1]:
+        errors.append("outreach.email.window_start must be before window_end")
+    if not set(e.get("days") or []) <= {"mon", "tue", "wed", "thu", "fri", "sat", "sun"} or not e.get("days"):
+        errors.append("outreach.email.days must list days like [\"mon\", \"tue\"]")
+    f = e.get("follow_up_days")
+    if not (isinstance(f, list) and len(f) <= 5 and all(isinstance(x, int) and 1 <= x <= 60 for x in f)
+            and f == sorted(set(f))):
+        errors.append("outreach.email.follow_up_days must be increasing whole days 1..60 (at most 5), e.g. [3, 7]")
+    if not 0 < float(e.get("pause_bounce_rate", 0)) < 1:
+        errors.append("outreach.email.pause_bounce_rate must be between 0 and 1")
+    w = o["whatsapp"]
+    if not isinstance(w.get("daily_cap"), int) or not 0 <= w["daily_cap"] <= 200:
+        errors.append("outreach.whatsapp.daily_cap must be a whole number 0..200")
+    from .outreach.templates import unknown_placeholders
+
+    texts = [("email.subjects", s) for s in e.get("subjects") or []] + [("email.first", e.get("first") or "")]
+    texts += [("email.follow_ups", s) for s in e.get("follow_ups") or []]
+    texts += [("whatsapp.message", w.get("message") or ""), ("whatsapp.opted_in_message", w.get("opted_in_message") or "")]
+    texts += [(f"hooks.{k}", v) for k, v in (o.get("hooks") or {}).items()]
+    for where, text in texts:
+        bad = unknown_placeholders(str(text))
+        if bad:
+            errors.append(f"outreach.{where} uses unknown placeholder(s) {sorted(bad)}")
+    return errors
+
+
 def validate(cfg: Config) -> None:
     errors = []
     c = cfg["campaign"]
@@ -206,5 +281,6 @@ def validate(cfg: Config) -> None:
         errors.append("enrich.workers must be 1..16")
     if not 5 <= float(cfg["runtime"]["time_budget_minutes"]) <= 340:
         errors.append("runtime.time_budget_minutes must be 5..340")
+    errors += _outreach_errors(cfg["outreach"])
     if errors:
         raise ConfigError("invalid configuration:\n  - " + "\n  - ".join(errors))

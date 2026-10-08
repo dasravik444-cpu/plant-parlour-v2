@@ -8,7 +8,8 @@ set -euo pipefail
 
 STATE_DIR="${STATE_DIR:-state}"
 OUT_DIR="${OUT_DIR:-state-out}"
-DB="$STATE_DIR/leadgen.sqlite"
+DB_NAME="${DB_NAME:-leadgen.sqlite}"      # outreach.sqlite for the outreach workflow
+DB="$STATE_DIR/$DB_NAME"
 ART_NAME="${ART_NAME:-pp-state}"
 
 enc() { openssl enc -aes-256-cbc -pbkdf2 -iter 200000 -md sha256 -salt -pass env:PP_STATE_KEY "$@"; }
@@ -71,7 +72,18 @@ PY
     # Plain intermediates stay in a temp dir (the runner is discarded after the
     # job); only the encrypted file goes to OUT_DIR, which is uploaded.
     work=$(mktemp -d)
-    python -m leadgen backup --db "$DB" --out "$work/leadgen.sqlite"
+    if [ "$DB_NAME" = "leadgen.sqlite" ]; then
+      python -m leadgen backup --db "$DB" --out "$work/leadgen.sqlite"
+    else
+      python - "$DB" "$work/leadgen.sqlite" <<'PY'
+import sqlite3, sys
+con = sqlite3.connect(sys.argv[1])
+if con.execute("PRAGMA integrity_check").fetchone()[0] != "ok":
+    sys.exit("database integrity check FAILED - not saving")
+con.execute("VACUUM INTO ?", (sys.argv[2],))
+print("backup written")
+PY
+    fi
     gzip -9 -c "$work/leadgen.sqlite" > "$work/db.gz"
     enc -in "$work/db.gz" -out "$OUT_DIR/pp-state.enc"
     echo "Encrypted state ready ($(du -h "$OUT_DIR/pp-state.enc" | cut -f1))."

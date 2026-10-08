@@ -300,3 +300,54 @@ def test_role_email_candidates_added_even_after_the_main_deadline(monkeypatch, t
     guesses = {c["value"] for c in db.contacts_for(key) if c["source"] == "guess"}
     assert guesses == {"info@brewcorner.in", "contact@brewcorner.in"}
     assert runner.stats["role_email_candidates"] == 2
+
+
+def test_current_sheet_gets_the_signals_column_with_data_kept():
+    from helpers import FakeSheetsSession
+    from leadgen.sheets import LEAD_COLUMNS, OLD_LEAD_LAYOUTS, SheetsClient, SheetsSync
+
+    live_layout = OLD_LEAD_LAYOUTS[1]                     # the layout the pilot sheet was created with
+    row = {c: "" for c in live_layout}
+    row.update({"Lead ID": "PP-00007", "Business Name": "Cafe X", "Priority": "High", "Description": "Cosy cafe",
+                "Key": "g:x", "Status": "Called"})
+    sess = FakeSheetsSession()
+    sess.tabs["Leads"] = {"id": 7, "rows": [list(live_layout), [row[c] for c in live_layout]]}
+    SheetsSync(SheetsClient("sheet", session=sess)).ensure_tabs()
+    rows = sess.tabs["Leads"]["rows"]
+    assert rows[0][:len(LEAD_COLUMNS)] == LEAD_COLUMNS
+    got = dict(zip(LEAD_COLUMNS, rows[1]))
+    assert got["Signals"] == "" and got["Priority"] == "High" and got["Description"] == "Cosy cafe"
+    assert got["Key"] == "g:x" and got["Status"] == "Called"
+
+
+def test_ad_tracking_code_on_own_site_becomes_a_signal_and_lifts_priority():
+    from leadgen.enrich.extract import ad_signals
+    from leadgen.quality import lead_priority
+
+    meta = "<script>!function(f,b,e,v){};fbq('init', '1234567890');</script>" \
+           "<script src='https://connect.facebook.net/en_US/fbevents.js'></script>"
+    gads = "<script>gtag('config', 'AW-987654321');</script>"
+    assert ad_signals(meta) == ["Runs Meta (Facebook/Instagram) ads"]
+    assert ad_signals(gads) == ["Runs Google Ads"]
+    assert ad_signals("<script>gtag('config', 'G-ABC123');</script>") == []      # analytics only is not advertising
+    assert lead_priority({"phone"}, None, None) == "Low"
+    assert lead_priority({"phone", "email"}, None, None, advertises=True) == "Medium"
+
+
+def test_crawled_site_with_pixel_reports_signal_only_when_the_site_is_theirs():
+    from urllib.parse import urlsplit
+    from helpers import FakeHttp
+    from leadgen.enrich.website import crawl_site
+
+    page = ("<html><head><title>Leaf Cafe Kolkata</title><script>fbq('init', '42');</script></head>"
+            "<body>Call 98300 12345 hello@leafcafe.in</body></html>")
+
+    def world(method, url, params, data):
+        if urlsplit(url).path == "/robots.txt":
+            return (404, "", "text/plain")
+        return (200, page, "text/html")
+    res = crawl_site(FakeHttp(world), "https://leafcafe.in/", "Leaf Cafe", max_pages=1, interval=0)
+    sig = [c for c in res.contacts if c.kind == "signal"]
+    assert [c.value for c in sig] == ["Runs Meta (Facebook/Instagram) ads"] and sig[0].confidence == "high"
+    other = crawl_site(FakeHttp(world), "https://leafcafe.in/", "Totally Different Gym", max_pages=1, interval=0)
+    assert not [c for c in other.contacts if c.kind == "signal"]          # not their site: no signal

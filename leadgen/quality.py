@@ -367,8 +367,9 @@ def is_qualified(contact_kinds: set[str]) -> bool:
     return any(k in contact_kinds for k in QUALIFYING_KINDS)
 
 
-def lead_priority(kinds: set[str], rating, reviews) -> str:
+def lead_priority(kinds: set[str], rating, reviews, advertises: bool = False) -> str:
     score = 0
+    score += 1 if advertises else 0      # pays for online ads: has budget and is growing
     score += 2 if "email" in kinds else 0
     score += 2 if "whatsapp" in kinds else 0
     score += 1 if "phone" in kinds else 0

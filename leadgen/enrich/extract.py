@@ -214,6 +214,19 @@ def _as_list(v):
     return v if isinstance(v, list) else [v]
 
 
+# Ad tracking code on a business's own website: it pays for online advertising (budget, growth). A buying
+# signal read only from pages we already crawl - the ad platforms themselves are never scraped.
+AD_TAGS = [
+    ("Runs Meta (Facebook/Instagram) ads", re.compile(r"connect\.facebook\.net/[\w-]+/fbevents\.js|fbq\(\s*['\"]init['\"]", re.I)),
+    ("Runs Google Ads", re.compile(r"googleadservices\.com/pagead/conversion|gtag\(\s*['\"]config['\"]\s*,\s*['\"]AW-\d+"
+                                   r"|googleads\.g\.doubleclick\.net", re.I)),
+]
+
+
+def ad_signals(html: str) -> list[str]:
+    return [label for label, rx in AD_TAGS if rx.search(html or "")]
+
+
 def extract_page(html: str, url: str, region: str = "IN", contact_page: bool = False) -> PageExtract:
     soup = BeautifulSoup(html, "html.parser")
     pe = PageExtract(url=url)

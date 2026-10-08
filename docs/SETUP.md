@@ -99,7 +99,13 @@ Edit `config/plant-parlour.toml` (on GitHub: open the file > pencil icon):
   `aliases` (other names of the city) and `local_landline_prefixes` (the
   region's landline codes, `+913` for West Bengal) in `[area]`.
 
-## 6. The tablet (optional backup)
+## 6. Outreach (e-mail + WhatsApp)
+
+Contacting the leads automatically is a separate workflow with its own one-time setup (a Gmail app
+password and two GitHub variables). It starts in dry-run so you can read every e-mail first.
+See **[OUTREACH.md](OUTREACH.md)**.
+
+## 7. The tablet (optional backup)
 
 The tablet can run the same system when GitHub is unavailable, or as your main
 runner if you prefer. Use Ubuntu inside Termux (proot-distro) so the `duckdb`
@@ -124,7 +130,7 @@ and stops within seconds once the day's work is done. Keep Termux awake
 If both run, the sheet still never gets duplicate rows, but some searches are
 done twice.
 
-## 7. Keeping an eye on it
+## 8. Keeping an eye on it
 
 * Daily: glance at the **Daily Report** tab, or the email from GitHub if a run failed.
 * `Health` column: `gmaps:ok` means Google Maps answered normally; `paused` means

@@ -155,21 +155,30 @@ python -m leadgen export-csv --out leads.csv
 * **Websites** are read openly as `PlantParlourLeadBot` (with a link to this repository), only
   where robots.txt allows, slowly (one page every 2 seconds per site), homepage plus at most 3
   contact/about pages.
-* **Outreach (later phase).** Business contact details published by the businesses themselves
-  may be used for business offers, but India's TRAI rules apply to promotional calls/SMS
-  (respect the DND registry), and every email should offer an opt-out.
+* **Outreach.** Only addresses the businesses published themselves are e-mailed, every e-mail says
+  who is writing and how to stop, and opt-outs are permanent (*Do Not Contact* tab). India's TRAI
+  rules apply to promotional calls/SMS; WhatsApp is never automated (see [docs/OUTREACH.md](docs/OUTREACH.md)).
 
 ## Repository layout
 
 ```
-leadgen/            the system (planner, runner, providers/, enrich/, sheets, report, cli)
+leadgen/            the system (planner, runner, providers/, enrich/, outreach/, sheets, report, cli)
 config/             campaign configuration (area, categories, targets) - edit this
 tests/              offline test suite (fake internet + fake Google Sheets)
-.github/workflows/  daily.yml (the automation), ci.yml (tests), probe.yml (live diagnostics)
+.github/workflows/  daily.yml (lead generation), outreach.yml (e-mail + WhatsApp queue), ci.yml (tests),
+                    probe.yml (live diagnostics)
 scripts/ci/         encrypted state save/restore for GitHub Actions
 scripts/tablet/     Termux install + daily runner
-docs/               SETUP, ARCHITECTURE, AUDIT (what was wrong with the old systems)
+docs/               SETUP, OUTREACH, ARCHITECTURE, AUDIT (what was wrong with the old systems)
 ```
 
-Outreach (email/WhatsApp/Instagram messages) is a later phase; the sheet's
-*Status* column and contact labels are designed for it.
+## Outreach (e-mail + WhatsApp)
+
+The **Outreach** workflow reads the Leads tab and contacts the leads for free: automatic, warmed-up
+e-mail sequences from a Gmail account (15 a day rising to 40, business hours, plain text, two follow-ups,
+any reply stops them, reply alerts to the owner) and a daily **WhatsApp Queue** of personalised messages
+sent with one tap from WhatsApp Business. It runs in dry-run (nothing sent, e-mails shown in *Email
+Preview*) until the owner switches it to live. Setup and daily routine: **[docs/OUTREACH.md](docs/OUTREACH.md)**.
+
+Leads whose own website carries Meta or Google ad tracking code get a *Signals* note ("Runs Meta ads")
+and a priority boost: a business that pays for ads has budget and is growing.

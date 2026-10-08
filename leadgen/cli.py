@@ -9,6 +9,7 @@ Commands
   doctor       check config, secrets, database and (with --live / --sheet-test) connectivity
   backup       consistent copy of the state database (for encryption/upload)
   probe        live diagnostics of every external source
+  outreach     e-mail sequences + WhatsApp send queue from the Leads tab (dry-run until switched to live)
 """
 from __future__ import annotations
 
@@ -24,6 +25,7 @@ from .util import get_logger, jload, local_date
 log = get_logger("cli")
 DEFAULT_CONFIG = os.environ.get("PP_CONFIG", "config/plant-parlour.toml")
 DEFAULT_DB = os.environ.get("PP_DB", "state/leadgen.sqlite")
+DEFAULT_OUTREACH_DB = os.environ.get("PP_OUTREACH_DB", "state/outreach.sqlite")
 
 
 def _common(ap):
@@ -62,6 +64,11 @@ def build_parser() -> argparse.ArgumentParser:
     b = sub.add_parser("backup", help="consistent copy of the database")
     _common(b)
     b.add_argument("--out", required=True)
+    o = sub.add_parser("outreach", help="send today's e-mails and build the WhatsApp queue from the Leads tab")
+    o.add_argument("--config", default=DEFAULT_CONFIG, help=f"campaign config (default {DEFAULT_CONFIG})")
+    o.add_argument("--db", default=DEFAULT_OUTREACH_DB, help=f"outreach state database (default {DEFAULT_OUTREACH_DB})")
+    o.add_argument("--mode", choices=["dry-run", "live"], default=None, help="override [outreach].mode")
+    o.add_argument("--max-emails", type=int, default=None, help="send at most this many e-mails in this run (testing)")
     sub.add_parser("probe", help="live diagnostics of external sources").add_argument("--only", default="")
     return ap
 
@@ -81,6 +88,8 @@ def main(argv=None) -> int:
 
     if args.cmd == "doctor":
         return cmd_doctor(cfg, args)
+    if args.cmd == "outreach":
+        return cmd_outreach(cfg, args)
     db = DB(args.db)
     try:
         if args.cmd == "run":
@@ -115,6 +124,39 @@ def main(argv=None) -> int:
     finally:
         db.close()
     return 1
+
+
+def _mask_contacts(text: str) -> str:
+    """Logs of a public repository must not show lead contacts."""
+    import re
+
+    text = re.sub(r"([A-Za-z0-9._%+'-])[A-Za-z0-9._%+'-]*@([A-Za-z0-9.-]+\.[A-Za-z]{2,24})", r"\1***@\2", text)
+    return re.sub(r"\+\d[\d \-]{8,}\d", lambda m: m.group(0)[:4] + "*******" + m.group(0)[-3:], text)
+
+
+def cmd_outreach(cfg, args) -> int:
+    from .outreach.engine import Outreach
+    from .outreach.store import OutreachStore
+
+    store = OutreachStore(args.db)
+    try:
+        live = None if args.mode is None else args.mode == "live"
+        code, summary = Outreach(cfg, store, live=live, max_emails=args.max_emails).run()
+    finally:
+        store.close()
+    text = _mask_contacts(json.dumps(summary, indent=1, ensure_ascii=False))
+    print(text)
+    path = os.environ.get("GITHUB_STEP_SUMMARY")
+    if path:
+        lines = [f"## Outreach - {summary.get('mode')} ({summary.get('status')})", "",
+                 f"* Daily e-mail limit: {summary.get('daily_limit')}",
+                 f"* New e-mails: {summary.get('new')}  |  follow-ups: {summary.get('followups')}  |  planned (dry-run): {summary.get('planned')}",
+                 f"* Replies: interested {summary.get('positive')}, not interested {summary.get('negative')}, other {summary.get('other')}",
+                 f"* Bounces: {summary.get('bounces')}  |  WhatsApp queued: {summary.get('wa_queued')}"]
+        lines += [f"* Note: {_mask_contacts(n)}" for n in summary.get("notes") or []]
+        with open(path, "a", encoding="utf-8") as fh:
+            fh.write("\n".join(lines) + "\n")
+    return code
 
 
 def cmd_plan(cfg, db, args) -> int:

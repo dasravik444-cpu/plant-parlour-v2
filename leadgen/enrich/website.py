@@ -8,7 +8,7 @@ from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 from ..net import BreakerOpen, DeadlineReached, FetchError, Http, NetworkDown
 from ..quality import is_aggregator, is_link_hub, name_score
 from ..util import get_logger
-from .extract import Found, canonical_social, extract_page, host_of, rank_contact_links, registrable
+from .extract import Found, ad_signals, canonical_social, extract_page, host_of, rank_contact_links, registrable
 
 log = get_logger("website")
 
@@ -92,6 +92,7 @@ def crawl_site(http: Http, url: str, business_name: str, *, max_pages: int = 4, 
     site_host = host_of(url)
     titles = []
     multi_phone_pages = 0
+    signals: dict[str, str] = {}
     while queue and len(res.pages) < max_pages:
         page = queue.pop(0)
         if page in visited:
@@ -149,6 +150,8 @@ def crawl_site(http: Http, url: str, business_name: str, *, max_pages: int = 4, 
                 return SiteResult(status="hijacked", final_url=r.url,
                                   error="the listed website now shows unrelated gambling/spam content")
         pe = extract_page(r.text, r.url, region=region, contact_page=is_contact_page)
+        for label in ad_signals(r.text):
+            signals.setdefault(label, r.url)
         res.pages.append(r.url)
         if pe.redirect_to_social:
             k, v = canonical_social(pe.redirect_to_social)
@@ -204,6 +207,9 @@ def crawl_site(http: Http, url: str, business_name: str, *, max_pages: int = 4, 
             label = (label + ",multi-location site").strip(",")
         res.contacts.append(Contact(kind, value, "jsonld" if f.how == "jsonld" else "website", page_url, conf, label,
                                     f"{f.how}: {f.snippet}"[:200] if f.snippet else f.how))
+    if res.owned:
+        for label, page_url in signals.items():
+            res.contacts.append(Contact("signal", label, "website", page_url, "high", "", "ad tracking code on the website"))
     if not res.pages:
         res.status = "error"
         res.error = res.error or "no pages fetched"

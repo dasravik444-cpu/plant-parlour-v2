@@ -101,6 +101,38 @@ safety_margin_minutes = 6
 use_curl_cffi = true
 
 # ----------------------------------------------------------------------------
+# Outreach (workflow "Outreach"): e-mails from a free Gmail account and a
+# WhatsApp send queue, both built from the Leads tab. See docs/OUTREACH.md.
+# Nothing is sent while mode = "dry-run" (unless the repository variable
+# OUTREACH_LIVE is "true"): the e-mails appear in the "Email Preview" tab.
+# ----------------------------------------------------------------------------
+[outreach]
+mode = "dry-run"
+
+[outreach.sender]
+name = "Ravik Das"            # shown as the sender and under every e-mail
+business = "Plant Parlour"
+phone = ""                    # REQUIRED before going live, e.g. "+91 98XXX XXXXX" (your WhatsApp number)
+city = "Kolkata"
+notify_email = ""             # your own e-mail: an alert arrives there whenever a lead replies
+
+[outreach.email]
+start_per_day = 15            # warm-up: a new Gmail account starts slowly...
+step = 5                      # ...and adds 5 a day every 3 days of sending...
+step_every_days = 3
+max_per_day = 40              # ...up to this (a free Gmail allows ~500, but cold e-mail must stay low)
+window_start = "10:00"        # Indian business hours only
+window_end = "18:30"
+days = ["mon", "tue", "wed", "thu", "fri", "sat"]
+skip_dates = []               # e.g. ["2026-10-20"] for Durga Puja / Diwali holidays
+follow_up_days = [3, 7]       # follow-ups 3 and 7 days after the first e-mail (any reply stops them)
+include_unverified = false    # true = also e-mail info@/contact@ guesses (more bounces - not recommended)
+
+[outreach.whatsapp]
+daily_cap = 20                # new numbers per day in the "WhatsApp Queue" tab (you send them with one tap)
+include_mobiles = false       # true = also queue plain mobile numbers (not confirmed on WhatsApp) - higher ban risk
+
+# ----------------------------------------------------------------------------
 # Business categories. `queries` are typed into Google Maps for every search
 # square; `match` words are checked against Google's own category labels to
 # keep only relevant businesses; `osm` tags are used by the OpenStreetMap

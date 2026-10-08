@@ -21,12 +21,16 @@ SCOPES = ["https://www.googleapis.com/auth/spreadsheets"]
 
 LEAD_COLUMNS = ["Lead ID", "Date Added", "Business Name", "Category", "Area", "Address", "Phones", "WhatsApp", "Emails",
                 "Instagram", "Facebook", "LinkedIn", "Contact Person", "Website", "Google Maps", "Rating", "Priority",
-                "Description", "Contact Sources", "Other Contacts (unverified)", "Plan Part", "Last Updated", "Key", "Status"]
+                "Signals", "Description", "Contact Sources", "Other Contacts (unverified)", "Plan Part", "Last Updated",
+                "Key", "Status"]
 # Earlier layouts: a sheet created with one of these is upgraded in place (columns inserted, data kept).
 OLD_LEAD_LAYOUTS = [
     ["Lead ID", "Date Added", "Business Name", "Category", "Area", "Address", "Phones", "WhatsApp", "Emails",
      "Instagram", "Facebook", "LinkedIn", "Website", "Google Maps", "Rating", "Priority", "Description",
      "Contact Sources", "Other Contacts (unverified)", "Plan Part", "Last Updated", "Key", "Status"],
+    ["Lead ID", "Date Added", "Business Name", "Category", "Area", "Address", "Phones", "WhatsApp", "Emails",
+     "Instagram", "Facebook", "LinkedIn", "Contact Person", "Website", "Google Maps", "Rating", "Priority",
+     "Description", "Contact Sources", "Other Contacts (unverified)", "Plan Part", "Last Updated", "Key", "Status"],
 ]
 STATUS_COL = LEAD_COLUMNS.index("Status")
 KEY_COL = LEAD_COLUMNS.index("Key")
