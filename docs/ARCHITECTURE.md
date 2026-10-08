@@ -126,7 +126,15 @@ seen only in a search snippet) go to the *Other Contacts (unverified)* column.
    like step 1.
 
 Nothing is guessed: every e-mail kept comes from a page of the business's own
-site (the page is its source) or from the open data. Small businesses that have
+site (the page is its source) or from the open data.
+
+Measured on the pilot (8 Oct 2026, all 2,054 leads, checked by hand row by row):
+52.7% -> 55.9% of leads with a usable e-mail. Of the leads still without one, 81%
+have no website and no e-mail on their Facebook page (small restaurants, hotels,
+salons, bakeries); a manual web search for samples of them found none either.
+Directory pages, chain sites and shared phone numbers are handled as described in
+the rules below (the first trials attributed chain hotels' and OYO properties'
+addresses wrongly; those rules came from that review). Small businesses that have
 no website and no e-mail on their Facebook page usually have no public e-mail
 at all; for them the phone/WhatsApp is the route.
 

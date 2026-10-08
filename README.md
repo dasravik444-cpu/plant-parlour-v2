@@ -138,6 +138,7 @@ python -m leadgen export-csv --out leads.csv
 | Web search for Instagram/Facebook/LinkedIn/website | Yahoo works (200+ lookups in a 19-minute run); DuckDuckGo rate-limits after about 1 query (slow backup). Matches must pass the accuracy rules; uncertain ones are marked unverified. |
 | Instagram profile bios (emails/phones) | Blocked when logged out from data-centre IPs (HTTP 401). Instagram *handles* are still found via websites, Maps and search. May work on the tablet. |
 | LinkedIn emails | Not collected (needs paid tools/login, against LinkedIn's terms). Company page URLs are collected. |
+| E-mail coverage | 52.7% of the pilot's leads after discovery, 55.9% after the e-mail hunt (8 Oct 2026). Most of the rest are small shops with no website and no e-mail on their Facebook page - reachable by phone/WhatsApp (98% have a phone). |
 | WhatsApp | Only numbers explicitly published as WhatsApp (wa.me links, "WhatsApp: ..." text). Mobile numbers are labelled *mobile*; WhatsApp registration cannot be verified without WhatsApp's API. |
 | OpenStreetMap | Used for planning and as a free fallback; public servers are often slow. |
 | Google Places API (official) | Not used: Google's terms forbid saving its names, addresses and phones in our own lists, even through the paid API. |
