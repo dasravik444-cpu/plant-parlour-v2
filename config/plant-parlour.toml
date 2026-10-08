@@ -129,8 +129,14 @@ follow_up_days = [3, 7]       # follow-ups 3 and 7 days after the first e-mail (
 include_unverified = false    # true = also e-mail info@/contact@ guesses (more bounces - not recommended)
 
 [outreach.whatsapp]
-daily_cap = 20                # new numbers per day in the "WhatsApp Queue" tab (you send them with one tap)
-include_mobiles = false       # true = also queue plain mobile numbers (not confirmed on WhatsApp) - higher ban risk
+# New numbers per day in the "WhatsApp Queue" tab (you send each with one tap). Warm-up like e-mail:
+# 20 a day, +10 after every 3 days on which you actually sent messages, up to max_per_day.
+# Cold messages from one number: above ~50 a day the risk of WhatsApp restricting it rises fast.
+start_per_day = 20
+step = 10
+step_every_days = 3
+max_per_day = 50
+include_mobiles = true        # also queue mobile numbers not published as WhatsApp (mark "Not on WhatsApp" if so)
 
 # ----------------------------------------------------------------------------
 # Business categories. `queries` are typed into Google Maps for every search

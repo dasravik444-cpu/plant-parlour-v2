@@ -159,7 +159,8 @@ def status_of(sess, key):
 
 def cfg_with(**email):
     e = {"start_per_day": 3, "step": 0, "max_per_day": 40, "max_per_run": 8, **email}
-    return make_config(outreach={"sender": SENDER, "email": e, "whatsapp": {"daily_cap": 2}})
+    return make_config(outreach={"sender": SENDER, "email": e,
+                                 "whatsapp": {"start_per_day": 2, "step": 0, "max_per_day": 2, "include_mobiles": False}})
 
 
 def runner(cfg, store, client, clock, smtp, imap=None, live=True, **kw):
@@ -353,6 +354,73 @@ def test_whatsapp_queue_results_and_not_on_whatsapp(tmp_path):
     clock.t = ts(2026, 10, 16, 11)
     runner(cfg_with(), store, client, clock, smtp, live=False).run()
     assert len(tab(sess, "WhatsApp Queue")) == 4
+
+
+def test_whatsapp_mobiles_queued_and_next_number_tried_when_not_on_whatsapp(tmp_path):
+    leads = [lead(1, "Two Mobiles", phones="+91 98300 11111 (mobile)\n+91 98300 22222 (mobile)", priority="High"),
+             lead(2, "Landline Only", phones="+91 33 2222 3333 (landline)", priority="High"),
+             lead(3, "Has Email", email="a@hasemail.in", phones="+91 98300 33333 (mobile)", priority="High"),
+             lead(4, "Third Shop", phones="+91 98300 44444 (mobile)")]
+    sess, client = sheet_with(leads)
+    smtp, clock = SmtpWorld(), Clock(ts(2026, 10, 14, 11))
+    store = OutreachStore(str(tmp_path / "o.sqlite"))
+    cfg = cfg_with()
+    cfg["outreach"]["whatsapp"].update(include_mobiles=True, start_per_day=1, max_per_day=1)
+    runner(cfg, store, client, clock, smtp, live=False).run()
+    wa = tab(sess, "WhatsApp Queue")
+    assert [(r["Business"], r["Number"]) for r in wa] == [("Two Mobiles", "+91 98300 11111")]
+    assert wa[0]["Why"].startswith("Mobile number")
+    rows = sess.tabs["WhatsApp Queue"]["rows"]
+    rows[1][rows[0].index("Result")] = "Not on WhatsApp"
+    clock.t = ts(2026, 10, 15, 11)
+    runner(cfg, store, client, clock, smtp, live=False).run()
+    # the same lead's other mobile is tried next; landlines and e-mail leads are never queued
+    assert [r["Number"] for r in tab(sess, "WhatsApp Queue")] == ["+91 98300 11111", "+91 98300 22222"]
+    rows = sess.tabs["WhatsApp Queue"]["rows"]
+    rows[2][rows[0].index("Result")] = "Sent"
+    clock.t = ts(2026, 10, 16, 11)
+    runner(cfg, store, client, clock, smtp, live=False).run()
+    assert [r["Business"] for r in tab(sess, "WhatsApp Queue")] == ["Two Mobiles", "Two Mobiles", "Third Shop"]
+
+
+def test_whatsapp_queue_adds_one_day_s_batch_and_tops_up_when_the_limit_rises(tmp_path):
+    leads = [lead(i, f"Shop {i}", whatsapp=f"+91 98300 0000{i}", priority="High") for i in range(1, 6)]
+    sess, client = sheet_with(leads)
+    smtp, clock = SmtpWorld(), Clock(ts(2026, 10, 14, 11))
+    store = OutreachStore(str(tmp_path / "o.sqlite"))
+    cfg = cfg_with()                                                   # 2 a day
+    runner(cfg, store, client, clock, smtp, live=False).run()
+    rows = sess.tabs["WhatsApp Queue"]["rows"]
+    col = rows[0].index("Result")
+    rows[1][col] = rows[2][col] = "Sent"
+    clock.t = ts(2026, 10, 14, 15)
+    runner(cfg, store, client, clock, smtp, live=False).run()
+    assert len(tab(sess, "WhatsApp Queue")) == 2                       # today's 2 are done: nothing more today
+    cfg["outreach"]["whatsapp"].update(start_per_day=4, max_per_day=4)
+    clock.t = ts(2026, 10, 14, 16)
+    runner(cfg, store, client, clock, smtp, live=False).run()
+    assert [r["Business"] for r in tab(sess, "WhatsApp Queue")] == ["Shop 1", "Shop 2", "Shop 3", "Shop 4"]
+
+
+def test_whatsapp_limit_warms_up_with_days_actually_sent(tmp_path):
+    store = OutreachStore(str(tmp_path / "o.sqlite"))
+    cfg = make_config(outreach={"sender": SENDER})       # defaults: 20/day, +10 every 3 days with sends, max 50
+    assert cfg["outreach"]["whatsapp"]["include_mobiles"] is True
+    o = Outreach(cfg, store, live=False, use_sheet=False, sender=None, inbox=None)
+    assert o._wa_cap("2026-11-01") == 20
+
+    def day(d, result):
+        store.conn.execute("INSERT INTO wa(phone,lead_key,lead_id,business,reason,queued_day,result,updated_at) "
+                           "VALUES(?,?,?,?,?,?,?,?)", (f"+91983000{d:04d}", f"k{d}", "", "", "mobile", f"2026-10-{d:02d}", result, 0))
+    for d in range(1, 4):
+        day(d, "not_on_whatsapp")                        # nothing actually sent: no warm-up
+    assert o._wa_cap("2026-11-01") == 20
+    for d in range(4, 10):
+        day(d, "sent")
+    assert o._wa_cap("2026-11-01") == 40
+    for d in range(10, 25):
+        day(d, "replied")
+    assert o._wa_cap("2026-11-01") == 50
 
 
 def test_owner_do_not_contact_and_lost_memory_never_double_email(tmp_path):

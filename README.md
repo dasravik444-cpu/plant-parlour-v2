@@ -177,7 +177,7 @@ docs/               SETUP, OUTREACH, ARCHITECTURE, AUDIT (what was wrong with th
 The **Outreach** workflow reads the Leads tab and contacts the leads for free: automatic, warmed-up
 e-mail sequences from a Gmail account (15 a day rising to 40, business hours, plain text, two follow-ups,
 any reply stops them, reply alerts to the owner) and a daily **WhatsApp Queue** of personalised messages
-sent with one tap from WhatsApp Business. It runs in dry-run (nothing sent, e-mails shown in *Email
+(published WhatsApp numbers, then mobiles; 20 a day rising to 50) sent with one tap from WhatsApp Business. It runs in dry-run (nothing sent, e-mails shown in *Email
 Preview*) until the owner switches it to live. Setup and daily routine: **[docs/OUTREACH.md](docs/OUTREACH.md)**.
 
 Leads whose own website carries Meta or Google ad tracking code get a *Signals* note ("Runs Meta ads")

@@ -59,7 +59,8 @@ DEFAULTS: dict = {
                   "skip_dates": [], "follow_up_days": [3, 7], "include_unverified": False, "one_per_domain": True,
                   "pause_bounce_rate": 0.05, "pause_min_sends": 20, "max_bounces_per_day": 3, "run_budget_minutes": 35,
                   "subjects": [], "first": "", "follow_ups": []},
-        "whatsapp": {"enabled": True, "daily_cap": 20, "include_mobiles": False, "message": "", "opted_in_message": ""},
+        "whatsapp": {"enabled": True, "start_per_day": 20, "step": 10, "step_every_days": 3, "max_per_day": 50,
+                     "include_mobiles": True, "message": "", "opted_in_message": ""},
         "boost_categories": ["event_planner", "banquet_venue", "nursery_florist", "interior_designer", "landscaper", "hotel"],
         "hooks": {}, "audience": {},
         "tabs": {"outreach": "Outreach", "preview": "Email Preview", "replies": "Replies", "whatsapp": "WhatsApp Queue",
@@ -204,8 +205,12 @@ def _outreach_errors(o: dict) -> list[str]:
     if not 0 < float(e.get("pause_bounce_rate", 0)) < 1:
         errors.append("outreach.email.pause_bounce_rate must be between 0 and 1")
     w = o["whatsapp"]
-    if not isinstance(w.get("daily_cap"), int) or not 0 <= w["daily_cap"] <= 200:
-        errors.append("outreach.whatsapp.daily_cap must be a whole number 0..200")
+    if "daily_cap" in w:
+        errors.append("outreach.whatsapp.daily_cap was replaced by start_per_day / step / step_every_days / max_per_day")
+    for name, lo, hi in (("start_per_day", 0, 200), ("step", 0, 50), ("step_every_days", 1, 30), ("max_per_day", 0, 200)):
+        v = w.get(name)
+        if not isinstance(v, int) or isinstance(v, bool) or not lo <= v <= hi:
+            errors.append(f"outreach.whatsapp.{name} must be a whole number {lo}..{hi}")
     from .outreach.templates import unknown_placeholders
 
     texts = [("email.subjects", s) for s in e.get("subjects") or []] + [("email.first", e.get("first") or "")]

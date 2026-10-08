@@ -547,17 +547,29 @@ class Outreach:
         return [self._today(), lead.lead_id, lead.business, lead.category_label, lead.area, display_phone(phone),
                 REASONS[reason], text, wa_link(phone, text), "", lead.key]
 
+    def _wa_cap(self, today: str) -> int:
+        """Warm-up for a new WhatsApp number: start small and grow with the days the owner actually sent messages."""
+        w = self.o["whatsapp"]
+        days = self.store.scalar("SELECT COUNT(DISTINCT queued_day) FROM wa WHERE queued_day!='' AND queued_day<? "
+                                 "AND result IN ('sent','replied','interested','not_interested')", (today,), 0)
+        return min(w["max_per_day"], w["start_per_day"] + w["step"] * (days // w["step_every_days"]))
+
     def _whatsapp_queue(self) -> None:
-        """Once a day: add up to daily_cap new numbers (minus what is still waiting from earlier days)."""
+        """Add new numbers up to today's limit: at most that many a day, and never more than that waiting."""
         w = self.o["whatsapp"]
         today = self._today()
-        if not w["enabled"] or w["daily_cap"] <= 0 or self.store.get("wa_day") == today or not self.leads:
+        cap = self._wa_cap(today)
+        if not w["enabled"] or cap <= 0 or not self.leads:
             return
         pending = self.store.scalar("SELECT COUNT(*) FROM wa WHERE result='' AND reason!='opted_in'", (), 0)
-        room = max(0, w["daily_cap"] - pending)
+        added_today = self.store.scalar("SELECT COUNT(*) FROM wa WHERE queued_day=? AND reason!='opted_in'", (today,), 0)
+        room = max(0, min(cap - pending, cap - added_today))
+        if room == 0:
+            return
         sup = {r["value"] for r in self.store.q("SELECT value FROM suppression")}
         queued_phones = {r["phone"] for r in self.store.q("SELECT phone FROM wa")}
-        queued_leads = {r["lead_key"] for r in self.store.q("SELECT DISTINCT lead_key FROM wa")}
+        # A lead is tried once; only when its number turned out not to be on WhatsApp is its next number tried.
+        queued_leads = {r["lead_key"] for r in self.store.q("SELECT DISTINCT lead_key FROM wa WHERE result!='not_on_whatsapp'")}
         # E-mail covers leads with an address; WhatsApp reaches the others (and those whose e-mail sequence ended).
         emailing = {r["lead_key"] for r in self.store.q("SELECT DISTINCT lead_key FROM threads WHERE stage IN ('active','replied','opted_out')")}
         ended = {r["lead_key"] for r in self.store.q(
@@ -586,7 +598,6 @@ class Outreach:
                     queued_leads.add(lead.key)
                     added += 1
                     break
-            self.store.set("wa_day", today)
         self.stats["wa_queued"] += added
 
     # ------------------------------------------------------------------ sheet + owner

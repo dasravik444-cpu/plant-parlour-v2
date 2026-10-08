@@ -6,10 +6,14 @@ The outreach system reads the **Leads** tab of your Google Sheet and contacts th
   hours with random gaps, best leads first, with two polite follow-ups. Any reply stops the follow-ups;
   "no" removes the lead for good. When someone replies you get an alert e-mail, and the reply appears
   in the **Replies** tab with the phone number: call them.
-* **WhatsApp (one tap per message).** Every morning the **WhatsApp Queue** tab gets up to 20 personalised
-  messages. On your phone, tap *Open Chat*, WhatsApp opens with the message already typed, press send,
-  then pick the *Result* (Sent / Not on WhatsApp / ...). A number that is not on WhatsApp is simply marked
-  and never comes back. Leads who answer "yes" by e-mail are put at the top of the queue: they asked for it.
+* **WhatsApp (one tap per message).** Every morning the **WhatsApp Queue** tab gets personalised messages
+  for the leads e-mail can't reach (no e-mail address, or no answer to the e-mails): numbers the business
+  publishes as WhatsApp first, then mobile numbers. 20 a day at first, rising by 10 after every 3 days on
+  which you sent them, up to 50 (a new number must warm up, like a new Gmail). On your phone, tap
+  *Open Chat*, WhatsApp opens with the message already typed, press send, then pick the *Result* (Sent /
+  Not on WhatsApp / ...). A number that is not on WhatsApp is simply marked: it never comes back, and the
+  lead's next mobile number (if it has one) is tried the next day. Leads who answer "yes" by e-mail are put
+  at the top of the queue: they asked for it.
 
 It runs on GitHub every hour from 10:11 to 18:11 IST, Monday to Saturday (workflow **Outreach**).
 
@@ -35,9 +39,10 @@ Tools that send "free" bulk WhatsApp (including the old system's Baileys server)
 against its terms; WhatsApp bans such numbers, and it is now testing a monthly cap on messages that get
 no reply. Cold messages also need the person's agreement under WhatsApp's Business policy. So the system
 does the safe thing: it sends e-mails automatically, turns interested e-mail replies into WhatsApp
-conversations (they said yes), and prepares a small daily queue for the businesses that publish a
-WhatsApp number. 500-600 cold WhatsApp messages a day from a new number would get it banned within days,
-whatever the tool.
+conversations (they said yes), and prepares a daily queue, warmed up slowly, for the leads e-mail can't
+reach. 500-600 cold WhatsApp messages a day from a new number would get it banned within days, whatever
+the tool. What gets a number restricted is people blocking or reporting it, so the messages are personal
+(business name, a line for their kind of business), carry no links, and offer an easy "reply STOP".
 
 ## One-time setup (about 15 minutes)
 
@@ -93,6 +98,10 @@ Edit `config/plant-parlour.toml`, section `[outreach.email]` (`subjects`, `first
 `{sender_name}` `{sender_first}` `{sender_business}` `{sender_phone}` `{sender_city}`. A typo in a
 placeholder is caught before anything is sent. Keep e-mails short, plain and without links.
 
+The number of WhatsApp messages a day is set in `[outreach.whatsapp]`: `start_per_day`, `step`,
+`step_every_days` and `max_per_day` (20, +10 every 3 sending days, up to 50). You can raise `max_per_day`
+(up to 200), but cold messages from one number above about 50 a day are what gets numbers restricted.
+
 ## Safety switches
 
 | If | The system |
@@ -102,7 +111,8 @@ placeholder is caught before anything is sent. Keep e-mails short, plain and wit
 | The Gmail login fails | sends nothing, turns the run red |
 | One lead's address is bad or odd | skips that lead, carries on |
 | A lead replies "no" / "stop" / "not interested" | removes e-mail and phone numbers for good |
-| A number is not on WhatsApp | you mark it once; it is never queued again |
+| A number is not on WhatsApp | you mark it once; it is never queued again, and the lead's next mobile number is tried |
+| WhatsApp shows a warning or restricts the number | lower `max_per_day` in `[outreach.whatsapp]` to 20 and send only to numbers published as WhatsApp (`include_mobiles = false`) for a while |
 | GitHub delays or skips a run | the next hourly run continues; nothing is sent twice |
 | The outreach memory is lost | leads whose Status says *Emailed* are never e-mailed again; the WhatsApp queue rebuilds from its tab |
 
