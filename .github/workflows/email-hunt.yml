@@ -64,7 +64,7 @@ jobs:
       - name: Hunt e-mails
         if: inputs.hunt_limit != '0' && inputs.hunt_limit != ''
         run: |
-          args=(email-hunt --limit "${{ inputs.hunt_limit }}" --budget-minutes "${{ inputs.budget_minutes }}")
+          args=(email-hunt --limit "${{ inputs.hunt_limit }}" --budget-minutes "${{ inputs.budget_minutes }}" --detail-csv "$RUNNER_TEMP/hunt-detail.csv")
           if [ "${{ inputs.persist_state }}" != "true" ]; then args+=(--no-sheets); fi
           python -m leadgen "${args[@]}"
       - name: Audit after
@@ -75,8 +75,11 @@ jobs:
         env:
           PUBKEY_B64: ${{ inputs.maintainer_pubkey }}
           SAMPLE_WITHOUT_EMAIL: ${{ inputs.sample_without_email && '1' || '' }}
-          SAMPLE_ROWS: "150"
-        run: bash scripts/ci/encrypted_sample.sh
+          SAMPLE_ROWS: "400"
+        run: |
+          # After a hunt: the per-lead hunt results (to check every e-mail it kept by hand).
+          if [ -f "$RUNNER_TEMP/hunt-detail.csv" ]; then export SAMPLE_CSV="$RUNNER_TEMP/hunt-detail.csv"; fi
+          bash scripts/ci/encrypted_sample.sh
       - name: Save campaign state (encrypted)
         if: always() && inputs.persist_state && steps.restore.outcome == 'success'
         run: bash scripts/ci/state.sh pack

@@ -258,7 +258,7 @@ class Runner:
         confirmed (kept in the Other Contacts column), so nothing is invented in the Emails column."""
         if not self.cfg["enrich"].get("role_email_candidates"):
             return
-        from .enrich.emails import FREE_PROVIDERS, normalize_email
+        from .enrich.emails import FREE_PROVIDERS, normalize_email, platform_of
         from .enrich.extract import host_of, registrable
         from .quality import is_aggregator
 
@@ -276,8 +276,8 @@ class Runner:
                 continue
             host = host_of(r["website"])
             dom = registrable(host) if host else ""
-            if not dom or dom in FREE_PROVIDERS or is_aggregator(r["website"]):
-                continue
+            if not dom or dom in FREE_PROVIDERS or is_aggregator(r["website"]) or platform_of(host):
+                continue            # info@business.site / info@wixsite.com would be the website builder's
             if dom not in checked:
                 try:
                     checked[dom] = mx.has_mx(dom)

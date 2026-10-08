@@ -11,6 +11,7 @@ Commands
   probe        live diagnostics of every external source
   outreach     e-mail sequences + WhatsApp send queue from the Leads tab (dry-run until switched to live)
   email-audit  e-mail coverage of the leads and where the gaps are (aggregate numbers only)
+  email-hunt   deeper e-mail search for leads that still have none (own website again, found websites)
 """
 from __future__ import annotations
 
@@ -60,6 +61,13 @@ def build_parser() -> argparse.ArgumentParser:
     a = sub.add_parser("email-audit", help="e-mail coverage and gaps (aggregate numbers only)")
     _common(a)
     a.add_argument("--json", default="", help="also write the numbers to this JSON file")
+    h = sub.add_parser("email-hunt", help="deeper e-mail search for leads that still have none")
+    _common(h)
+    h.add_argument("--limit", type=int, default=200, help="leads to look at in this run")
+    h.add_argument("--budget-minutes", type=float, default=60.0)
+    h.add_argument("--workers", type=int, default=None)
+    h.add_argument("--no-sheets", action="store_true", help="do not update the Google Sheet")
+    h.add_argument("--detail-csv", default="", help="per-lead results (contains contacts - local/encrypted use only)")
     d = sub.add_parser("doctor", help="health checks")
     _common(d)
     d.add_argument("--live", action="store_true", help="also test Google Maps and a website fetch")
@@ -119,6 +127,17 @@ def main(argv=None) -> int:
             n = export_csv(db, cfg, args.out, without_email=args.without_email)
             print(f"wrote {n} leads to {args.out}")
             return 0
+        if args.cmd == "email-hunt":
+            from .hunt import EmailHunt
+
+            code, summary = EmailHunt(cfg, db, limit=args.limit, budget_minutes=args.budget_minutes, workers=args.workers,
+                                      use_sheets=not args.no_sheets, detail_path=args.detail_csv).run()
+            print(json.dumps(summary, indent=1, ensure_ascii=False))
+            summary_path = os.environ.get("GITHUB_STEP_SUMMARY")
+            if summary_path:
+                with open(summary_path, "a", encoding="utf-8") as fh:
+                    fh.write("## E-mail hunt\n\n```\n" + json.dumps(summary, indent=1, ensure_ascii=False) + "\n```\n")
+            return code
         if args.cmd == "email-audit":
             from .audit import email_audit, format_audit
 

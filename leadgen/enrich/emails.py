@@ -97,6 +97,77 @@ def email_label(email: str, site_domain: str = "") -> str:
     return ",".join(labels)
 
 
+# Free website builders: the business's name is the sub-domain (dsmscompany.wixsite.com), not the domain.
+HOSTING_PLATFORMS = {"business.site", "wixsite.com", "wix.com", "blogspot.com", "blogspot.in", "wordpress.com", "weebly.com",
+                     "godaddysites.com", "site123.me", "jimdosite.com", "jimdofree.com", "webnode.com", "webnode.in",
+                     "square.site", "mystrikingly.com", "strikingly.com", "carrd.co", "github.io", "netlify.app",
+                     "vercel.app", "web.app", "firebaseapp.com", "000webhostapp.com", "tumblr.com", "sites.google.com",
+                     "yolasite.com", "ueniweb.com", "ueni.com", "zohosites.com", "zohosites.in", "dorik.io", "framer.website",
+                     "framer.ai", "notion.site", "myshopify.com", "mydukaan.io", "dukaan.app", "instamojo.com", "bikayi.com",
+                     "canva.site", "my.canva.site", "hostingersite.com", "wpcomstaging.com", "squarespace.com", "webflow.io",
+                     "business.page", "negocio.site", "blogspot.co.uk", "edublogs.org"}
+
+
+def platform_of(host: str) -> str:
+    """The website builder a host is a sub-domain of ('' for an own domain)."""
+    host = (host or "").lower()
+    host = host[4:] if host.startswith("www.") else host
+    for plat in HOSTING_PLATFORMS:
+        if host == plat or host.endswith("." + plat):
+            return plat
+    return ""
+
+
+def site_label(host: str) -> str:
+    """The part of a website's host that names the business: 'leafcafe' for leafcafe.in, 'dsmscompany' for
+    dsmscompany.wixsite.com ('' when the host is the platform itself)."""
+    host = (host or "").lower()
+    host = host[4:] if host.startswith("www.") else host
+    plat = platform_of(host)
+    if plat:
+        return host[: -len(plat) - 1].split(".")[-1] if host != plat else ""
+    parts = host.split(".")
+    if len(parts) >= 3 and parts[-2] in ("co", "org", "net", "gov", "ac", "edu", "com", "res", "gen", "firm", "ind") and len(parts[-1]) == 2:
+        return parts[-3]
+    return parts[-2] if len(parts) >= 2 else host
+
+
+def _alnum(s: str) -> str:
+    return re.sub(r"[^a-z0-9]", "", (s or "").lower())
+
+
+def related_email(email: str, business_name: str, site_host: str) -> str:
+    """What ties an address found as plain text on a business's own website to that business, or '' if
+    nothing does (it may then be a supplier's, a partner's or a web designer's address)."""
+    from ..quality import distinctive_tokens, tokens
+
+    local, _, domain = email.partition("@")
+    host = (site_host or "").lower()
+    host = host[4:] if host.startswith("www.") else host
+    if not platform_of(host) and host:
+        parts = host.split(".")
+        reg = ".".join(parts[-3:]) if (len(parts) >= 3 and len(parts[-1]) == 2 and parts[-2] in
+                                       ("co", "org", "net", "gov", "ac", "edu", "com", "res", "gen", "firm", "ind")) else ".".join(parts[-2:])
+        if domain == reg or domain.endswith("." + reg):
+            return "same domain as the website"
+    label = _alnum(site_label(host))
+    words = [_alnum(t) for t in distinctive_tokens(business_name) if len(_alnum(t)) >= 4]
+    joined = _alnum("".join(tokens(business_name)))
+    parts = [_alnum(local)]
+    if domain not in FREE_PROVIDERS:
+        parts.append(_alnum(domain.split(".")[0]))
+    for part in parts:
+        if len(part) < 4:
+            continue
+        if len(label) >= 4 and (label in part or (len(part) >= 6 and part in label)):
+            return "matches the website's name"
+        if any(w in part for w in words):
+            return "contains the business name"
+        if len(part) >= 6 and part in joined:
+            return "contains the business name"
+    return ""
+
+
 def find_emails_in_text(text: str) -> list[str]:
     out, seen = [], set()
     for m in EMAIL_RE.finditer(text or ""):

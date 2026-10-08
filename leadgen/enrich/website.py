@@ -22,6 +22,10 @@ TRACKING_PARAMS = re.compile(r"^(utm_[a-z]+|gclid|fbclid|gbraid|wbraid|msclkid|s
 # Paths most small-business sites use for contact details, tried directly if not linked with obvious text.
 COMMON_CONTACT_PATHS = ["/contact", "/contact-us", "/contactus", "/contact-us/", "/about", "/about-us", "/reach-us",
                         "/get-in-touch", "/connect", "/enquiry", "/reach-us/"]
+# Deep crawl (e-mail hunt): policy pages very often carry the business's e-mail ("write to us at ...").
+POLICY_PATHS = ["/privacy-policy", "/privacy", "/terms-and-conditions", "/terms", "/refund-policy", "/disclaimer"]
+POLICY_LINK_WORDS = re.compile(r"privacy|terms|policy|polic|legal|disclaimer|refund|cancellation|imprint", re.I)
+SITEMAP_PAGE_WORDS = re.compile(r"contact|about|reach|enquir|inquir|privacy|terms|policy|location|support|connect|touch", re.I)
 
 
 @dataclass
@@ -64,7 +68,7 @@ def normalize_url(url: str) -> str:
 
 
 def _confidence(f: Found, name_ok: bool, multi_location: bool) -> str:
-    strong = f.how in ("mailto", "tel", "wa-link", "jsonld", "cfemail", "link")
+    strong = f.how in ("mailto", "tel", "wa-link", "jsonld", "cfemail", "link", "microdata")
     if strong and name_ok and not multi_location:
         return "high"
     if strong or (f.how == "text" and name_ok and not multi_location):
@@ -72,13 +76,81 @@ def _confidence(f: Found, name_ok: bool, multi_location: bool) -> str:
     return "low"
 
 
+def url_variants(url: str) -> list[str]:
+    """Other addresses of the same site to try when the listed one does not answer: http/https and with or
+    without www (small-business sites often have a broken certificate or only one of the two names)."""
+    parts = urlsplit(url)
+    host = parts.netloc
+    hosts = [host[4:]] if host.startswith("www.") else ["www." + host]
+    out = []
+    for scheme in ("https", "http"):
+        for h in [host] + hosts:
+            v = urlunsplit((scheme, h, parts.path or "/", parts.query, ""))
+            if v != url and v not in out:
+                out.append(v)
+    return out
+
+
 def crawl_site(http: Http, url: str, business_name: str, *, max_pages: int = 4, region: str = "IN",
-               interval: float = 2.0, known_phones: tuple | list = ()) -> SiteResult:
+               interval: float = 2.0, known_phones: tuple | list = (), deep: bool = False, variants: bool = False) -> SiteResult:
     """known_phones: the business's phone numbers from its listing (E.164). A site whose name does
-    not match the business still counts as its own when it shows one of these numbers."""
+    not match the business still counts as its own when it shows one of these numbers.
+    deep: also read policy pages and the sitemap's contact pages (more pages - for the e-mail hunt).
+    variants: when the site does not answer, try it over http/https and with/without www."""
     url = normalize_url(url)
     if not url:
         return SiteResult(status="skipped", error="no usable URL")
+    res = _crawl(http, url, business_name, max_pages=max_pages, region=region, interval=interval,
+                 known_phones=known_phones, deep=deep)
+    if variants and res.status == "error" and not res.pages:
+        for alt in url_variants(url):
+            alt_res = _crawl(http, alt, business_name, max_pages=max_pages, region=region, interval=interval,
+                             known_phones=known_phones, deep=deep)
+            if alt_res.pages or alt_res.status not in ("error",):
+                alt_res.error = (alt_res.error + f" (reached as {alt})").strip()
+                return alt_res
+    return res
+
+
+def _sitemap_pages(http: Http, root: str, limit: int = 4) -> list[str]:
+    """Contact/about/policy pages listed in the site's sitemap (robots-permitted, one or two small fetches)."""
+    out: list[str] = []
+    for path in ("/sitemap.xml", "/wp-sitemap.xml", "/sitemap_index.xml"):
+        try:
+            allowed, _ = http.robots_allowed(root + path)
+            if not allowed:
+                return out
+            r = http.get(root + path, timeout=15, max_bytes=2_000_000, retries=0, browser=True)
+        except (NetworkDown, DeadlineReached):
+            raise
+        except (FetchError, BreakerOpen):
+            continue
+        if r.status >= 400 or "<loc>" not in r.text:
+            continue
+        locs = re.findall(r"<loc>\s*([^<\s]+)\s*</loc>", r.text)[:2000]
+        pages = [u for u in locs if not u.endswith(".xml") and registrable(host_of(u)) == registrable(host_of(root))]
+        subs = [u for u in locs if u.endswith(".xml")][:3]
+        if not pages and subs:  # a sitemap index: read the page sitemap(s)
+            for sub in subs:
+                try:
+                    r2 = http.get(sub, timeout=15, max_bytes=2_000_000, retries=0, browser=True)
+                except (NetworkDown, DeadlineReached):
+                    raise
+                except (FetchError, BreakerOpen):
+                    continue
+                pages += [u for u in re.findall(r"<loc>\s*([^<\s]+)\s*</loc>", r2.text)[:2000]
+                          if not u.endswith(".xml") and registrable(host_of(u)) == registrable(host_of(root))]
+        for u in pages:
+            if SITEMAP_PAGE_WORDS.search(urlsplit(u).path) and u not in out:
+                out.append(u)
+            if len(out) >= limit:
+                break
+        break
+    return out
+
+
+def _crawl(http: Http, url: str, business_name: str, *, max_pages: int, region: str, interval: float,
+           known_phones: tuple | list, deep: bool) -> SiteResult:
     social = canonical_social(url)
     if social:
         return SiteResult(status="social", contacts=[Contact(social[0], social[1], "google_maps", url, "high", "listed as website")])
@@ -93,8 +165,10 @@ def crawl_site(http: Http, url: str, business_name: str, *, max_pages: int = 4, 
     titles = []
     multi_phone_pages = 0
     signals: dict[str, str] = {}
-    while queue and len(res.pages) < max_pages:
+    attempts = 0
+    while queue and len(res.pages) < max_pages and attempts < max_pages * 3:
         page = queue.pop(0)
+        attempts += 1
         if page in visited:
             continue
         visited.add(page)
@@ -104,8 +178,14 @@ def crawl_site(http: Http, url: str, business_name: str, *, max_pages: int = 4, 
             raise
         if not allowed:
             if not res.pages:
-                res.status = "blocked_robots"
-                res.error = "robots.txt disallows crawling"
+                why = http.robots_reason(page) if hasattr(http, "robots_reason") else ""
+                if why and why not in ("disallowed", "ok"):
+                    # robots.txt could not be read (server error/timeout): not a refusal - try again later.
+                    res.status = "error"
+                    res.error = why
+                else:
+                    res.status = "blocked_robots"
+                    res.error = "robots.txt disallows crawling"
                 return res
             continue
         if delay > 10:
@@ -164,7 +244,11 @@ def crawl_site(http: Http, url: str, business_name: str, *, max_pages: int = 4, 
             ranked = rank_contact_links(pe.internal_links, max_pages - 1)
             # Also try the usual contact/about paths directly - many sites don't link them with obvious text.
             common = [root + c for c in COMMON_CONTACT_PATHS]
-            for link in ranked + [c for c in common if c not in ranked]:
+            extra: list[str] = []
+            if deep:
+                policy_links = [u for u, t in pe.policy_links]
+                extra = _sitemap_pages(http, root) + policy_links[:3] + [root + c for c in POLICY_PATHS]
+            for link in ranked + [c for c in common if c not in ranked] + extra:
                 if link not in visited and link not in queue:
                     queue.append(link)
         phones_here = {f.value for f in pe.found if f.kind == "phone"}
@@ -196,9 +280,17 @@ def crawl_site(http: Http, url: str, business_name: str, *, max_pages: int = 4, 
         if kind in ("phone", "whatsapp") and home_cc and not value.startswith(home_cc):
             conf, label = "low", (label + ",foreign number").strip(",")
         if kind == "email":
-            from .emails import email_label, suspicious_email
+            from .emails import email_label, related_email, suspicious_email
 
             label = email_label(value, registrable(site_host))
+            if not res.owned:
+                label = (label + ",site may belong to another business").strip(",")
+            elif conf == "low" and f.how in ("text", "script") and not multi_location:
+                # Plain text on the business's own site: theirs when the address carries the site's domain
+                # or name (a supplier's or web designer's address does not).
+                tie = related_email(value, business_name, site_host)
+                if tie:
+                    conf, label = "medium", (label + "," + tie).strip(",")
             why = suspicious_email(value)
             if why:
                 # Published like this on the site, but probably undeliverable: keep it, as unverified.

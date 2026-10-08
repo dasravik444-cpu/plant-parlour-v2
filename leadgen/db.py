@@ -344,10 +344,12 @@ class DB:
             sources.append(src_entry)
             changed = True
         new_conf = row["confidence"]
-        if CONF_RANK.get(confidence, 0) > CONF_RANK.get(row["confidence"], 0):
+        upgraded = CONF_RANK.get(confidence, 0) > CONF_RANK.get(row["confidence"], 0)
+        if upgraded:
             new_conf = confidence
             changed = True
-        new_label = row["label"] or label
+        # A confirmed find replaces the note that explained why the value was unverified.
+        new_label = label if (upgraded and label) else (row["label"] or label)
         if changed or new_label != row["label"]:
             self.conn.execute("UPDATE contacts SET sources=?, confidence=?, label=? WHERE id=?",
                               (jdump(sources[:12]), new_conf, new_label, row["id"]))

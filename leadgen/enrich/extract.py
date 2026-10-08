@@ -35,6 +35,10 @@ SOCIAL_HOST_KIND = {
 }
 
 CONTACT_LINK_WORDS = re.compile(r"contact|about|reach|find[\s\-_]?us|get[\s\-_]?in[\s\-_]?touch|connect|enquir|inquir|location|visit[\s\-_]?us|book|reserv|support", re.I)
+POLICY_LINK_WORDS = re.compile(r"privacy|terms|polic|legal|disclaimer|refund|cancellation|imprint", re.I)
+# "email": "x@y.com" / 'contactEmail':'x@y.com' / mailto:x@y.com inside a <script> (JSON settings of site builders)
+SCRIPT_EMAIL_RE = re.compile(r"(?:[\"'](?:e-?mail|contact_?e-?mail|email_?address|mail)[\"']\s*:\s*[\"']|mailto:)"
+                             r"([A-Za-z0-9._%+\-]{1,64}(?:@|\\u0040)[A-Za-z0-9.\-]{1,253}\.[A-Za-z]{2,24})", re.I)
 SKIP_LINK_EXT = re.compile(r"\.(pdf|jpe?g|png|gif|svg|webp|zip|rar|docx?|xlsx?|pptx?|mp4|mp3|avi|mov)(\?|$)", re.I)
 # A named contact person, only when the business's own site says so explicitly ("Founder: Rahul Sharma",
 # "Rahul Sharma, Owner", "Founded by Rahul Sharma"). Never inferred from reviews or e-mail addresses.
@@ -187,6 +191,7 @@ class PageExtract:
     site_name: str = ""
     found: list[Found] = field(default_factory=list)
     internal_links: list[tuple[str, str]] = field(default_factory=list)   # (url, anchor text) candidates for contact pages
+    policy_links: list[tuple[str, str]] = field(default_factory=list)     # privacy/terms pages (deep crawl only)
     jsonld_names: list[str] = field(default_factory=list)
     redirect_to_social: str = ""
 
@@ -328,11 +333,26 @@ def extract_page(html: str, url: str, region: str = "IN", contact_page: bool = F
                 clean = urlunsplit(urlsplit(absu)._replace(fragment=""))
                 if clean.rstrip("/") != url.rstrip("/") and all(clean != u for u, _ in pe.internal_links):
                     pe.internal_links.append((clean, text))
+            elif POLICY_LINK_WORDS.search(href) or POLICY_LINK_WORDS.search(text):
+                clean = urlunsplit(urlsplit(absu)._replace(fragment=""))
+                if all(clean != u for u, _ in pe.policy_links):
+                    pe.policy_links.append((clean, text))
 
     for el in soup.find_all(attrs={"data-cfemail": True}):
         e = normalize_email(decode_cfemail(el["data-cfemail"]) or "")
         if e:
             pe.add(Found("email", e, "cfemail"))
+
+    # --- e-mails written into scripts (site builders keep contact settings as JSON) ----------------
+    script_emails = []
+    for sc in soup.find_all("script"):
+        raw = sc.string or sc.get_text() or ""
+        if "@" not in raw or len(raw) > 3_000_000:
+            continue
+        for m in SCRIPT_EMAIL_RE.finditer(raw):
+            e = normalize_email(m.group(1).replace("\\u0040", "@").replace("\\/", "/"))
+            if e:
+                script_emails.append(e)
 
     # --- visible text ---------------------------------------------------------
     for t in soup(["script", "style", "noscript", "svg", "template"]):
@@ -343,6 +363,8 @@ def extract_page(html: str, url: str, region: str = "IN", contact_page: bool = F
     text_clean = re.sub(r"(designed|developed|powered|crafted|built|maintained|created|hosted)\s+(and\s+\w+\s+)?by[^.|]{0,120}", " ", text, flags=re.I)
     for e in find_emails_in_text(text_clean):
         pe.add(Found("email", e, "text"))
+    for e in script_emails:
+        pe.add(Found("email", e, "script"))
     for e164, label, snip in find_phones_in_text(text_clean, region, require_context=not contact_page):
         pe.add(Found("phone", e164, "text", label, snip))
     for name, role, snip in find_people(text_clean):

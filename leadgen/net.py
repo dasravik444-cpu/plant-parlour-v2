@@ -212,6 +212,7 @@ class Http:
         self._net_check = (0.0, True)
         self._net_lock = threading.Lock()
         self._robots: dict[str, RobotFileParser | None] = {}
+        self._robots_reason: dict[str, str] = {}
         self._robots_lock = threading.Lock()
         self.stats = {"requests": 0, "bytes": 0, "errors": 0}
         self._stats_lock = threading.Lock()
@@ -390,34 +391,56 @@ class Http:
         with self._robots_lock:
             cached = self._robots.get(base, "missing")
         if cached == "missing":
-            parser: RobotFileParser | None
-            try:
-                r = self.get(base + "/robots.txt", timeout=12, max_bytes=500_000, browser=False, retries=0,
-                             interval=self.default_interval, block_statuses=())
-                if 200 <= r.status < 300 and "html" not in r.content_type:
-                    parser = RobotFileParser()
-                    parser.parse(r.text.splitlines())
-                elif r.status == 429 or r.status >= 500:
-                    parser = None  # temporarily treat as full disallow
-                else:
-                    parser = RobotFileParser()
-                    parser.parse([])  # 4xx / HTML soft-404: no restrictions
-            except NetworkDown:
-                raise
-            except FetchError:
-                parser = None
+            parser, reason = self._fetch_robots(base)
             with self._robots_lock:
                 self._robots[base] = parser
+                self._robots_reason[base] = reason
             cached = parser
         if cached is None:
             return False, 0.0
         allowed = cached.can_fetch(user_agent, url)
+        if not allowed:
+            with self._robots_lock:
+                self._robots_reason[base] = "disallowed"
         delay = cached.crawl_delay(user_agent) or 0.0
         try:
             delay = float(delay)
         except (TypeError, ValueError):
             delay = 0.0
         return allowed, delay
+
+    def _fetch_robots(self, base: str) -> tuple[RobotFileParser | None, str]:
+        """(parser, reason). parser None = treat the site as closed for now (Google's rule for robots.txt
+        that answers 429/5xx or cannot be reached); reason says which, so a site that merely failed to
+        answer is retried later instead of being reported as refusing robots."""
+        last = ""
+        # Some small-business servers reject the plain client's TLS handshake but answer a browser-like one.
+        for browser, timeout in ((False, 12), (True, 20)):
+            try:
+                r = self.get(base + "/robots.txt", timeout=timeout, max_bytes=500_000, browser=browser, retries=0,
+                             interval=self.default_interval, block_statuses=())
+            except NetworkDown:
+                raise
+            except FetchError as exc:
+                last = str(exc)[:120] or type(exc).__name__
+                continue
+            if 200 <= r.status < 300 and "html" not in r.content_type:
+                parser = RobotFileParser()
+                parser.parse(r.text.splitlines())
+                return parser, "ok"
+            if r.status == 429 or r.status >= 500:
+                return None, f"robots.txt answered HTTP {r.status}"
+            parser = RobotFileParser()
+            parser.parse([])  # 4xx / HTML soft-404: no restrictions
+            return parser, "ok"
+        return None, f"robots.txt unreachable ({last})"
+
+    def robots_reason(self, url: str) -> str:
+        """Why robots_allowed() answered as it did for this site: ok | disallowed | robots.txt answered HTTP n |
+        robots.txt unreachable (...)."""
+        parts = urlsplit(url)
+        with self._robots_lock:
+            return self._robots_reason.get(f"{parts.scheme}://{parts.netloc}", "")
 
     def breaker_report(self) -> dict:
         return {name: b.snapshot() for name, b in sorted(self.breakers.items())}

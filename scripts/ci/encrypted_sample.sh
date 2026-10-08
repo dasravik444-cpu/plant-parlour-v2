@@ -11,7 +11,12 @@ if [ ! -f "$DB" ] || [ -z "${PUBKEY_B64:-}" ]; then
 fi
 tmp=$(mktemp -d)
 # SAMPLE_WITHOUT_EMAIL=1: sample only leads that have no usable e-mail yet (to study the gaps).
-python -m leadgen export-csv --db "$DB" --out "$tmp/all.csv" ${SAMPLE_WITHOUT_EMAIL:+--without-email} >/dev/null
+# SAMPLE_CSV=file: sample this CSV instead (e.g. the e-mail hunt's per-lead results).
+if [ -n "${SAMPLE_CSV:-}" ] && [ -f "$SAMPLE_CSV" ]; then
+  cp "$SAMPLE_CSV" "$tmp/all.csv"
+else
+  python -m leadgen export-csv --db "$DB" --out "$tmp/all.csv" ${SAMPLE_WITHOUT_EMAIL:+--without-email} >/dev/null
+fi
 # Round-robin over categories so every category is represented in the sample.
 python - "$tmp/all.csv" "$tmp/sample.csv" "${SAMPLE_ROWS:-150}" <<'PY'
 import csv, sys
@@ -19,7 +24,7 @@ from collections import defaultdict
 with open(sys.argv[1], newline="", encoding="utf-8") as fh:
     rows = list(csv.reader(fh))
 head, groups = rows[0], defaultdict(list)
-cat = head.index("Category")
+cat = head.index("Category") if "Category" in head else 0
 for r in rows[1:]:
     groups[r[cat]].append(r)
 picked, limit = [], int(sys.argv[3])
