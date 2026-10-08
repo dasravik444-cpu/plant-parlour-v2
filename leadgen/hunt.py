@@ -385,3 +385,59 @@ class EmailHunt:
                         "Rejected", "E-mails now (value [confidence] note <source>)"])
             # Leads that gained an e-mail first: the maintainer's sample is checked by hand.
             w.writerows(sorted(self.details, key=lambda r: (not str(r[4]).startswith("e-mail found"), r[4])))
+
+
+class UspRefresh(EmailHunt):
+    """Reads the homepage (and about page) of leads crawled before USP lines existed, for their USP line -
+    leads with an e-mail first, as those are the ones the outreach writes to. Other contacts found on the
+    way are kept too. Each lead is read once."""
+
+    TASK = "usp:v1"
+
+    def _select(self) -> list[Job]:
+        done = {r["place_key"] for r in self.db.q("SELECT place_key FROM tasks WHERE kind='usp' AND key LIKE ?",
+                                                  (f"{self.TASK}:%",))}
+        rows = self.db.q(f"SELECT key, lead_no, name, category, website, address FROM places WHERE {LEADS} "
+                         "AND website IS NOT NULL AND website!='' "
+                         "AND key NOT IN (SELECT place_key FROM contacts WHERE kind='usp') "
+                         "ORDER BY (key NOT IN (SELECT place_key FROM contacts WHERE kind='email' AND confidence!='low')), lead_no")
+        jobs = []
+        for r in rows:
+            if r["key"] in done or not _usable_site(normalize_url(r["website"])):
+                continue
+            phones = [c["value"] for c in self.db.q(
+                "SELECT value FROM contacts WHERE place_key=? AND kind IN ('phone','whatsapp') AND value LIKE '+%'", (r["key"],))]
+            jobs.append(Job(r["key"], lead_id(r["lead_no"]), r["name"], r["category"] or "", r["website"],
+                            list(dict.fromkeys(phones)), r["address"] or ""))
+            if len(jobs) >= self.limit:
+                break
+        return jobs
+
+    def _work(self, job: Job) -> Outcome:
+        self._check_time()
+        site = crawl_site(self.http, normalize_url(job.website), job.name, max_pages=3, region=self.region,
+                          interval=float(self.cfg["enrich"]["site_interval_s"]), known_phones=tuple(job.phones),
+                          variants=True)
+        return Outcome(site=site)
+
+    def _apply(self, job: Job, out: Outcome) -> str:
+        site = out.site
+        if site is None:
+            return "not read"
+        added, _ = self._store_site(job.key, site)
+        if added:
+            self.db.mark_dirty(job.key)
+        if any(c.kind == "usp" for c in site.contacts):
+            return "USP line found"
+        if site.status != "ok":
+            return "website unreachable"
+        return "website read - nothing distinctive"
+
+    def _record(self, job: Job, out: Outcome, outcome: str) -> None:
+        with self.db.tx():
+            self.db.enqueue("usp", f"{self.TASK}:{job.key}", {}, place_key=job.key)
+            self.db.conn.execute("UPDATE tasks SET status='done', result=?, updated_at=? WHERE key=?",
+                                 (jdump({"outcome": outcome}), self.now(), f"{self.TASK}:{job.key}"))
+        usp = next((c.value for c in (out.site.contacts if out.site else []) if c.kind == "usp"), "")
+        self.details.append([job.lead_id, job.name, job.category, job.website, outcome, out.site.status if out.site else "",
+                             (out.site.error if out.site else "")[:150], "", "", "", "", "", "", "", usp])

@@ -70,3 +70,30 @@ def test_usp_backfill_from_stored_descriptions_runs_once(tmp_path):
     vals = {x["place_key"]: x["value"] for x in db.q("SELECT place_key, value FROM contacts WHERE kind='usp'")}
     assert vals == {"k1": "Kolkata's first plant-themed cafe"}
     assert db.get_meta("usp_backfill") == "v1"
+
+
+def test_usp_refresh_reads_homepages_of_leads_with_email_first_once(tmp_path):
+    from helpers import FakeHttp
+
+    from leadgen.hunt import UspRefresh
+
+    db = DB(str(tmp_path / "r.sqlite"))
+    with db.tx():
+        db.insert_place({"key": "k1", "name": "Peter Cat", "category": "restaurant", "provider": "overture", "found_date": "2026-10-08",
+                         "qualified": 1, "lead_no": 2, "website": "https://petercat.in/"})
+        db.add_contact("k1", "email", "info@petercat.in", source="overture", confidence="medium")
+        db.insert_place({"key": "k2", "name": "No Mail Cafe", "category": "cafe", "provider": "overture", "found_date": "2026-10-08",
+                         "qualified": 1, "lead_no": 1, "website": "https://nomail.in/"})
+
+    def route(method, url, params, data):
+        if url.endswith("/robots.txt"):
+            return (200, "User-agent: *\nAllow: /\n", "text/plain")
+        if url == "https://petercat.in/":
+            return (200, "<html><head><title>Peter Cat</title></head><body><h1>Iconic Park Street restaurant since 1975</h1>"
+                         "</body></html>", "text/html")
+        return (404, "x", "text/html")
+    code, s = UspRefresh(make_config(), db, limit=1, use_sheets=False, http=FakeHttp(route), workers=1).run()
+    assert s["outcomes"] == {"USP line found": 1}                               # the lead with an e-mail went first
+    assert db.scalar("SELECT value FROM contacts WHERE place_key='k1' AND kind='usp'") == "Iconic Park Street restaurant since 1975"
+    code, s = UspRefresh(make_config(), db, limit=5, use_sheets=False, http=FakeHttp(route), workers=1).run()
+    assert s["outcomes"] == {"website read - nothing distinctive": 1} or s["outcomes"] == {"website unreachable": 1}

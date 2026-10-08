@@ -12,6 +12,7 @@ Commands
   outreach     e-mail sequences + WhatsApp send queue from the Leads tab (dry-run until switched to live)
   email-audit  e-mail coverage of the leads and where the gaps are (aggregate numbers only)
   email-hunt   deeper e-mail search for leads that still have none (own website again, found websites)
+  usp-refresh  read the homepage of leads crawled before USP lines existed, for their USP line
 """
 from __future__ import annotations
 
@@ -69,6 +70,11 @@ def build_parser() -> argparse.ArgumentParser:
     h.add_argument("--no-sheets", action="store_true", help="do not update the Google Sheet")
     h.add_argument("--detail-csv", default="", help="per-lead results (contains contacts - local/encrypted use only)")
     h.add_argument("--force", action="store_true", help="run even when [enrich] email_hunt = false (manual trials)")
+    u = sub.add_parser("usp-refresh", help="USP lines for leads crawled before they existed (leads with e-mail first)")
+    _common(u)
+    u.add_argument("--limit", type=int, default=300)
+    u.add_argument("--budget-minutes", type=float, default=10.0)
+    u.add_argument("--no-sheets", action="store_true")
     d = sub.add_parser("doctor", help="health checks")
     _common(d)
     d.add_argument("--live", action="store_true", help="also test Google Maps and a website fetch")
@@ -142,6 +148,14 @@ def main(argv=None) -> int:
             if summary_path:
                 with open(summary_path, "a", encoding="utf-8") as fh:
                     fh.write("## E-mail hunt\n\n```\n" + json.dumps(summary, indent=1, ensure_ascii=False) + "\n```\n")
+            return code
+        if args.cmd == "usp-refresh":
+            from .hunt import UspRefresh
+
+            code, summary = UspRefresh(cfg, db, limit=args.limit, budget_minutes=args.budget_minutes,
+                                       use_sheets=not args.no_sheets).run()
+            summary.pop("email_coverage_before", None)
+            print(json.dumps(summary, indent=1, ensure_ascii=False))
             return code
         if args.cmd == "email-audit":
             from .audit import email_audit, format_audit

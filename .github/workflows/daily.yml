@@ -96,11 +96,19 @@ jobs:
           python -m leadgen "${args[@]}"
       - name: E-mail hunt (leads still without an e-mail)
         # A deeper look (own website again, websites missing from the listing) for leads found without a usable
-        # e-mail. Each lead is looked at once; the follow-up runs work through the rest.
-        if: (success() || failure()) && env.PERSIST == 'true' && steps.restore.outcome == 'success'
+        # e-mail. Each lead is looked at once; the follow-up runs work through the rest (not the long 06:07 run).
+        if: (success() || failure()) && env.PERSIST == 'true' && steps.restore.outcome == 'success' && github.event.schedule != '37 0 * * *'
         continue-on-error: true
         run: |
           args=(email-hunt --limit 600 --budget-minutes 15)
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ] && [ "${{ inputs.use_sheet }}" != "true" ]; then args+=(--no-sheets); fi
+          python -m leadgen "${args[@]}"
+      - name: USP lines for older leads
+        # Homepage of leads read before USP lines existed (leads with an e-mail first), once each.
+        if: (success() || failure()) && env.PERSIST == 'true' && steps.restore.outcome == 'success' && github.event.schedule != '37 0 * * *'
+        continue-on-error: true
+        run: |
+          args=(usp-refresh --limit 400 --budget-minutes 10)
           if [ "${{ github.event_name }}" = "workflow_dispatch" ] && [ "${{ inputs.use_sheet }}" != "true" ]; then args+=(--no-sheets); fi
           python -m leadgen "${args[@]}"
       - name: Encrypted lead sample (maintainer quality check)
