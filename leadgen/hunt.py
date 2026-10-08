@@ -141,7 +141,12 @@ class EmailHunt:
         return jobs
 
     # ------------------------------------------------------------------ network work (worker threads)
+    def _check_time(self) -> None:
+        if self.now() > self.deadline:
+            raise DeadlineReached("time budget used up")
+
     def _work(self, job: Job) -> Outcome:
+        self._check_time()
         out = Outcome()
         e = self.cfg["enrich"]
         pages = max(10, int(e["max_pages_per_site"]))
@@ -158,6 +163,7 @@ class EmailHunt:
                 return out          # their site was read (or refuses robots): nothing more to find
         if not job.phones:
             return out              # no phone number to prove a found site is theirs
+        self._check_time()
         out.discovery = discover_website(self.http, job.name, job.phones, job.address, region=self.region, city=self.city,
                                          resolver=self.resolver)
         if out.discovery.url and (not listed or registrable(host_of(out.discovery.url)) != registrable(host_of(listed))):
@@ -282,6 +288,8 @@ class EmailHunt:
                                        default_interval=float(self.cfg["enrich"]["site_interval_s"]), **bot)
         if self._http is not None:
             self.http.deadline = deadline
+        self.http.hard_deadline = True
+        self.deadline = deadline
         jobs = self._select()
         before = self._coverage()
         log.info("e-mail hunt: %d leads without a usable e-mail to look at (coverage now %s%%)", len(jobs), before[2])

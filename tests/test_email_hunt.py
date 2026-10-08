@@ -184,3 +184,17 @@ def test_hunt_uses_other_listings_with_the_same_phone(tmp_path):
     assert s["outcomes"]["e-mail found in another listing (same phone)"] == 1
     assert s["outcomes"]["e-mail found on a website named in another listing"] == 1
     assert db.scalar("SELECT website FROM places WHERE key='ov:b1'") == "https://aimgym.in/"
+
+
+def test_hunt_stops_starting_work_when_its_time_is_up(tmp_path):
+    db = DB(str(tmp_path / "t.sqlite"))
+    with db.tx():
+        for i in range(3):
+            place(db, f"k{i}", f"Shop {i}")
+            db.add_contact(f"k{i}", "phone", f"+91983001111{i}", source="overture", confidence="medium")
+    times = iter([1000.0, 1000.0])                     # run start + coverage; afterwards the budget is gone
+    clock = lambda: next(times, 99999.0)              # noqa: E731
+    code, s = EmailHunt(make_config(), db, limit=10, budget_minutes=5, use_sheets=False, http=FakeHttp(router_for({})),
+                        resolver=FakeResolver(set()), workers=1, now_fn=clock).run()
+    assert s["outcomes"] == {"not reached (time budget)": 3}
+    assert db.scalar("SELECT COUNT(*) FROM tasks WHERE kind='hunt'") == 0      # looked at again next time

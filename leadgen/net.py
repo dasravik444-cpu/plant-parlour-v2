@@ -203,6 +203,9 @@ class Http:
         self.use_curl = bool(use_curl_cffi and HAVE_CURL_CFFI)
         self.impersonate = impersonate
         self.deadline = deadline
+        # hard_deadline: refuse every request once the deadline has passed (the e-mail hunt). The daily runner
+        # keeps it off: work already in flight may finish during its drain period.
+        self.hard_deadline = False
         self.default_interval = default_interval
         self.max_bytes = max_bytes
         self._tls = threading.local()
@@ -283,6 +286,8 @@ class Http:
         attempt = 0
         while True:
             attempt += 1
+            if self.hard_deadline and self.deadline is not None and time.time() > self.deadline:
+                raise DeadlineReached("time budget used up", url=url)
             pace = self.default_interval if interval is None else interval
             slot = self._pacer.reserve(service or host, pace + (random.uniform(0, jitter) if jitter else 0.0))
             wait = slot - time.time()
