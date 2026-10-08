@@ -273,10 +273,43 @@ def probe_overpass(http: Http) -> dict:
     return out
 
 
+def probe_smtp() -> dict:
+    """Can GitHub's machines reach Gmail's mail servers? (connect + greeting only - no login, nothing sent)"""
+    import imaplib
+    import smtplib
+    import socket
+    import ssl
+    import time
+
+    out = {}
+    for name, fn in (
+        ("smtp.gmail.com:587 (STARTTLS)", lambda: _smtp_starttls(smtplib, ssl)),
+        ("smtp.gmail.com:465 (SSL)", lambda: smtplib.SMTP_SSL("smtp.gmail.com", 465, timeout=20).ehlo()),
+        ("imap.gmail.com:993 (SSL)", lambda: imaplib.IMAP4_SSL("imap.gmail.com", 993, timeout=20).capability()),
+    ):
+        t = time.time()
+        try:
+            res = fn()
+            out[name] = f"OK in {time.time() - t:.1f}s: {str(res)[:80]}"
+        except (OSError, socket.timeout, smtplib.SMTPException, imaplib.IMAP4.error) as exc:
+            out[name] = f"FAILED after {time.time() - t:.1f}s: {type(exc).__name__}: {exc}"[:200]
+        line(f"  {name}: {out[name]}")
+    return out
+
+
+def _smtp_starttls(smtplib, ssl):
+    s = smtplib.SMTP("smtp.gmail.com", 587, timeout=20)
+    s.ehlo()
+    code, msg = s.starttls(context=ssl.create_default_context())
+    s.ehlo()
+    s.quit()
+    return code, msg
+
+
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser(description="Live diagnostics of external sources")
     ap.add_argument("--quick", action="store_true")
-    ap.add_argument("--only", default="", help="comma list: gmaps,web,instagram,search,overpass")
+    ap.add_argument("--only", default="", help="comma list: gmaps,web,instagram,search,overpass,smtp")
     args = ap.parse_args(argv)
     only = set(filter(None, args.only.split(",")))
     line(f"curl_cffi available: {HAVE_CURL_CFFI}")
@@ -297,6 +330,9 @@ def main(argv=None) -> int:
         report["instagram"] = probe_instagram(main_http)
     if not only or "search" in only:
         report["search"] = probe_search(main_http)
+    if "smtp" in only:
+        line("Gmail servers (connection only):")
+        probe_smtp()
     if not only or "overpass" in only:
         report["overpass"] = probe_overpass(http_plain)
     line("=" * 70)
