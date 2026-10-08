@@ -45,6 +45,22 @@ def _id_num(lead_id: str) -> int:
     return int(digits) if digits else 10**9
 
 
+# Which of a business's addresses to write to first: the ones people read for new business, not the
+# grievance officer's, the data-protection or the jobs mailbox.
+_LATE = re.compile(r"^(grievance|dpo|privacy|legal|compliance|abuse|webmaster|postmaster|careers?|jobs?|hr|recruit|"
+                   r"investors?|ir|billing|accounts?|payments?|finance|invoice|noreply|no-reply|clubitc|loyalty)", re.I)
+_MIDDLE = re.compile(r"^(support|customercare|care|feedback|help|complaints?|service)", re.I)
+
+
+def address_rank(addr: str) -> int:
+    local = addr.split("@")[0]
+    if _LATE.search(local):
+        return 2
+    if _MIDDLE.search(local):
+        return 1
+    return 0
+
+
 class Outreach:
     def __init__(self, cfg, store, *, client=None, sender=None, inbox=None, live: bool | None = None,
                  max_emails: int | None = None, now_fn=time.time, sleep_fn=time.sleep, rng=None, use_sheet: bool = True):
@@ -417,7 +433,7 @@ class Outreach:
                 continue
             if blocked(*[p for p, _ in lead.phones], *lead.whatsapp):
                 continue
-            pool = lead.emails + (lead.unverified_emails if e["include_unverified"] else [])
+            pool = sorted(lead.emails, key=address_rank) + (lead.unverified_emails if e["include_unverified"] else [])
             for addr in pool:
                 dom = email_domain(addr)
                 if addr in used_emails or blocked(addr, "@" + dom):

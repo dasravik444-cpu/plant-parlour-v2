@@ -338,7 +338,8 @@ def is_chain(name: str, chains: list[str]) -> str | None:
         return "oyo network"
     for c in chains:
         cn = norm_text(c)
-        if cn and re.search(r"(^| )" + re.escape(cn) + r"( |$)", low):
+        # "Domino's" / "McDonald's" become "dominos" / "mcdonalds": allow the possessive s
+        if cn and re.search(r"(^| )" + re.escape(cn) + r"s?( |$)", low):
             return c
     return None
 

@@ -97,3 +97,11 @@ def test_usp_refresh_reads_homepages_of_leads_with_email_first_once(tmp_path):
     assert db.scalar("SELECT value FROM contacts WHERE place_key='k1' AND kind='usp'") == "Iconic Park Street restaurant since 1975"
     code, s = UspRefresh(make_config(), db, limit=5, use_sheets=False, http=FakeHttp(route), workers=1).run()
     assert s["outcomes"] == {"website read - nothing distinctive": 1} or s["outcomes"] == {"website unreachable": 1}
+
+
+def test_chain_names_with_an_apostrophe_are_recognised():
+    from leadgen.quality import is_chain
+
+    assert is_chain("Domino's Pizza | Sealdah", ["domino"]) == "domino"
+    assert is_chain("McDonald's", ["mcdonald"]) == "mcdonald"
+    assert is_chain("Dominic Cafe", ["domino"]) is None

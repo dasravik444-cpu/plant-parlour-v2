@@ -564,3 +564,11 @@ def test_gmail_hanging_up_during_login_is_reported_as_a_password_problem():
     assert "Gmail refused the login" in problem and "App Password" in problem
     res = sender.send(build_message(sender_name="x", sender_addr="me@gmail.com", to="a@b.in", subject="s", body="b"))
     assert res.status == "auth"
+
+
+def test_sales_type_address_is_written_to_first(tmp_path):
+    leads = [lead(1, "ITC Royal Bengal", email="grievanceofficer@itchotels.com\nreservations@itchotels.com", priority="High")]
+    sess, client = sheet_with(leads)
+    smtp, clock = SmtpWorld(), Clock(ts(2026, 10, 14, 11))
+    runner(cfg_with(), OutreachStore(str(tmp_path / "o.sqlite")), client, clock, smtp, max_emails=1).run()
+    assert [m["To"] for m in smtp.sent] == ["reservations@itchotels.com"]
