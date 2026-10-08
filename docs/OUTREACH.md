@@ -66,8 +66,12 @@ the tool. What gets a number restricted is people blocking or reporting it, so t
 5. **Switch on the dry-run:** Settings > Secrets and variables > Actions > *Variables*: add
    `OUTREACH_ENABLED` = `true`. Every hour the system now fills **Email Preview** with the exact e-mails it
    would send (nothing is sent). Read a few. To change the wording, edit `[outreach.email]` (see below).
-6. **Go live:** add the variable `OUTREACH_LIVE` = `true`. Sending starts at the next hourly run.
+6. **Go live:** add the variable `OUTREACH_LIVE` = `true`. Automatic sending also needs
+   `[outreach.email] enabled = true` in `config/plant-parlour.toml` (it was left `false` after the first test
+   e-mails, until you give the go-ahead). Sending starts at the next hourly run.
    To stop at any time, set `OUTREACH_LIVE` to `false` (or `OUTREACH_ENABLED` to `false` to stop everything).
+   **Test e-mails:** Actions > *Outreach* > Run workflow with *mode* `live` and *max_emails* `2` sends exactly two
+   e-mails to the best two leads, even while automatic sending is paused.
 7. **WhatsApp Business on the new number:** install *WhatsApp Business* (not normal WhatsApp), and fill in the
    business profile (name Plant Parlour, logo, description, address, hours, website). Add your price list
    to the *Catalog*, create a quick reply `/price` with the price-list message, and turn on the *greeting*
@@ -96,6 +100,15 @@ the tool. What gets a number restricted is people blocking or reporting it, so t
 | WhatsApp Queue | Messages to send with one tap; you fill *Result* |
 | Do Not Contact | Opt-outs, bounces and your own blocks - never contacted again |
 | Outreach Report | One line per run: limit, sent, replies, bounces, WhatsApp, notes |
+
+## Personal touch: the USP line
+
+The Leads tab has a **USP** column: the one concrete thing a business says about itself on its own website
+("Iconic Park Street restaurant famous for its Chelo Kebab since 1975", "15+ years of experience and 500+
+projects"). When a lead has one, the first e-mail quotes it - *I came across Peter Cat and liked this line on
+your website: "..."* - and such leads are e-mailed first. When the website says nothing distinctive (or there
+is no website) the cell stays empty and the e-mail says where we came across them instead. Nothing is made
+up: the line is always the business's own words, from its own site.
 
 ## Changing the messages
 

@@ -186,5 +186,8 @@ any reply stops them, reply alerts to the owner) and a daily **WhatsApp Queue** 
 (published WhatsApp numbers, then mobiles; 20 a day rising to 50) sent with one tap from WhatsApp Business. It runs in dry-run (nothing sent, e-mails shown in *Email
 Preview*) until the owner switches it to live. Setup and daily routine: **[docs/OUTREACH.md](docs/OUTREACH.md)**.
 
+Each lead also gets a **USP** line when its own website states something concrete about it ("serving since
+1975", "500+ weddings"); the first outreach e-mail quotes it.
+
 Leads whose own website carries Meta or Google ad tracking code get a *Signals* note ("Runs Meta ads")
 and a priority boost: a business that pays for ads has budget and is growing.
