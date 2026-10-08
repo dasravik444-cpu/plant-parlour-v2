@@ -73,7 +73,7 @@ the tool. What gets a number restricted is people blocking or reporting it, so t
    to the *Catalog*, create a quick reply `/price` with the price-list message, and turn on the *greeting*
    and *away* messages (Business tools). This is free and makes every chat look professional.
 
-## Your daily routine (about 15 minutes)
+## Your daily routine (about 20-30 minutes)
 
 1. **Reply alerts / Replies tab:** call everyone marked *Interested* the same day (a call converts far better
    than more e-mails), then send the price list on WhatsApp (the *WhatsApp Chat* link is ready).
