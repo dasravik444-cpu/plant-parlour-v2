@@ -1,0 +1,90 @@
+name: E-mail hunt (audit + backfill)
+
+# Manual: measures the e-mail coverage of the leads (aggregate numbers only) and, when asked, runs the
+# extra e-mail hunt over leads that still have no usable e-mail, then saves the campaign state and
+# updates the Google Sheet. Shares the campaign memory with "Daily lead generation" and never runs
+# at the same time as it.
+on:
+  workflow_dispatch:
+    inputs:
+      hunt_limit:
+        description: "Leads to hunt e-mails for (0 = audit only)"
+        default: "0"
+      budget_minutes:
+        description: "Time budget for the hunt in minutes"
+        default: "60"
+      persist_state:
+        description: "Save the campaign memory and update the Google Sheet afterwards"
+        type: boolean
+        default: false
+      maintainer_pubkey:
+        description: "Optional: base64 RSA public key - prints an ENCRYPTED sample for a quality check"
+        default: ""
+      sample_without_email:
+        description: "Sample only leads that still have no e-mail"
+        type: boolean
+        default: true
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: leadgen-${{ github.ref_name }}
+  cancel-in-progress: false
+
+jobs:
+  hunt:
+    runs-on: ubuntu-latest
+    timeout-minutes: 110
+    env:
+      PP_STATE_KEY: ${{ secrets.PP_STATE_KEY }}
+      PP_SHEET_ID: ${{ secrets.PP_SHEET_ID }}
+      GOOGLE_SERVICE_ACCOUNT_JSON: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_JSON }}
+      PYTHONUNBUFFERED: "1"
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - name: Install
+        run: |
+          pip install -r requirements.txt
+          pip install "curl_cffi>=0.7" || echo "curl_cffi unavailable - falling back to requests"
+      - name: Restore campaign state
+        id: restore
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: bash scripts/ci/state.sh restore
+      - name: Audit before
+        run: python -m leadgen email-audit --json audit-before.json
+      - name: Hunt e-mails
+        if: inputs.hunt_limit != '0' && inputs.hunt_limit != ''
+        run: |
+          args=(email-hunt --limit "${{ inputs.hunt_limit }}" --budget-minutes "${{ inputs.budget_minutes }}")
+          if [ "${{ inputs.persist_state }}" != "true" ]; then args+=(--no-sheets); fi
+          python -m leadgen "${args[@]}"
+      - name: Audit after
+        if: inputs.hunt_limit != '0' && inputs.hunt_limit != ''
+        run: python -m leadgen email-audit --json audit-after.json
+      - name: Encrypted sample (maintainer quality check)
+        if: always() && inputs.maintainer_pubkey != ''
+        env:
+          PUBKEY_B64: ${{ inputs.maintainer_pubkey }}
+          SAMPLE_WITHOUT_EMAIL: ${{ inputs.sample_without_email && '1' || '' }}
+          SAMPLE_ROWS: "150"
+        run: bash scripts/ci/encrypted_sample.sh
+      - name: Save campaign state (encrypted)
+        if: always() && inputs.persist_state && steps.restore.outcome == 'success'
+        run: bash scripts/ci/state.sh pack
+      - name: Upload encrypted state
+        if: always() && inputs.persist_state && steps.restore.outcome == 'success'
+        uses: actions/upload-artifact@v4
+        with:
+          name: pp-state
+          path: state-out/pp-state.enc
+          retention-days: 90
+          if-no-files-found: ignore

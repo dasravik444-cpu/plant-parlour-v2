@@ -10,7 +10,8 @@ if [ ! -f "$DB" ] || [ -z "${PUBKEY_B64:-}" ]; then
   exit 0
 fi
 tmp=$(mktemp -d)
-python -m leadgen export-csv --db "$DB" --out "$tmp/all.csv" >/dev/null
+# SAMPLE_WITHOUT_EMAIL=1: sample only leads that have no usable e-mail yet (to study the gaps).
+python -m leadgen export-csv --db "$DB" --out "$tmp/all.csv" ${SAMPLE_WITHOUT_EMAIL:+--without-email} >/dev/null
 # Round-robin over categories so every category is represented in the sample.
 python - "$tmp/all.csv" "$tmp/sample.csv" "${SAMPLE_ROWS:-150}" <<'PY'
 import csv, sys

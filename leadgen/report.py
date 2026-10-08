@@ -115,8 +115,11 @@ def contact_coverage(db: DB, day: str | None = None) -> dict:
     return out
 
 
-def export_csv(db: DB, cfg, path: str) -> int:
+def export_csv(db: DB, cfg, path: str, without_email: bool = False) -> int:
     rows = db.q("SELECT * FROM places WHERE excluded IS NULL AND merged_into IS NULL AND qualified=1 ORDER BY lead_no, first_seen")
+    if without_email:
+        rows = [p for p in rows if not db.one("SELECT 1 FROM contacts WHERE place_key=? AND kind='email' AND confidence!='low'",
+                                              (p["key"],))]
     os.makedirs(os.path.dirname(os.path.abspath(path)), exist_ok=True)
     with open(path, "w", newline="", encoding="utf-8") as fh:
         w = csv.writer(fh)

@@ -10,6 +10,7 @@ Commands
   backup       consistent copy of the state database (for encryption/upload)
   probe        live diagnostics of every external source
   outreach     e-mail sequences + WhatsApp send queue from the Leads tab (dry-run until switched to live)
+  email-audit  e-mail coverage of the leads and where the gaps are (aggregate numbers only)
 """
 from __future__ import annotations
 
@@ -55,6 +56,10 @@ def build_parser() -> argparse.ArgumentParser:
     e = sub.add_parser("export-csv", help="export leads to CSV")
     _common(e)
     e.add_argument("--out", required=True)
+    e.add_argument("--without-email", action="store_true", help="only leads that have no usable e-mail yet")
+    a = sub.add_parser("email-audit", help="e-mail coverage and gaps (aggregate numbers only)")
+    _common(a)
+    a.add_argument("--json", default="", help="also write the numbers to this JSON file")
     d = sub.add_parser("doctor", help="health checks")
     _common(d)
     d.add_argument("--live", action="store_true", help="also test Google Maps and a website fetch")
@@ -111,8 +116,22 @@ def main(argv=None) -> int:
         if args.cmd == "export-csv":
             from .report import export_csv
 
-            n = export_csv(db, cfg, args.out)
+            n = export_csv(db, cfg, args.out, without_email=args.without_email)
             print(f"wrote {n} leads to {args.out}")
+            return 0
+        if args.cmd == "email-audit":
+            from .audit import email_audit, format_audit
+
+            a = email_audit(db, cfg)
+            text = format_audit(a)
+            print(text)
+            if args.json:
+                with open(args.json, "w", encoding="utf-8") as fh:
+                    json.dump(a, fh, indent=1)
+            summary_path = os.environ.get("GITHUB_STEP_SUMMARY")
+            if summary_path:
+                with open(summary_path, "a", encoding="utf-8") as fh:
+                    fh.write("## E-mail coverage audit\n\n```\n" + text + "\n```\n")
             return 0
         if args.cmd == "backup":
             if not db.integrity_ok():
