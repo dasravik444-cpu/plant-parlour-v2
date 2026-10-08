@@ -250,6 +250,23 @@ def name_match(business: str, candidate: str, handle: str = "") -> _Match:
     return m
 
 
+def same_business_name(lead_name: str, other: str) -> bool:
+    """Two listings with the same phone number are the same business only when the lead's own distinctive name
+    is there - not just "Hotel"/"Kitchen"/"Guest House" (OYO and FabHotels properties share one number), and not
+    a chain's shared brand with a different property name ("FabExpress Nest" vs "FabExpress Sai City Inn")."""
+    m = name_match(lead_name, other)
+    hits = [t for t in m.dist if t in m.covered]
+    if not hits:
+        return False
+    missing = [t for t in m.dist if t not in m.covered]
+    lead_toks = tokens(lead_name)
+    extras = [t for t in distinctive_tokens(other)
+              if not any(token_equiv(t, b) for b in lead_toks) and len(t) >= 3 and not t.isdigit()]
+    if missing and extras:
+        return False
+    return len(hits) == len(m.dist) or any(len(t) >= 4 and not _is_common(t) for t in hits) or not missing
+
+
 def weak_site_name(business: str, titles: list[str], domain_label: str) -> bool:
     """True when a website seems to be this business only through one common word ("Metro Restaurant" and
     metroshoes.net share just "metro"); its own phone number on the site is then needed as proof."""

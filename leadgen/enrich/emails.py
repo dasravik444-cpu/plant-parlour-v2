@@ -139,7 +139,7 @@ def _alnum(s: str) -> str:
 def related_email(email: str, business_name: str, site_host: str) -> str:
     """What ties an address found as plain text on a business's own website to that business, or '' if
     nothing does (it may then be a supplier's, a partner's or a web designer's address)."""
-    from ..quality import distinctive_tokens, tokens
+    from ..quality import _is_common, distinctive_tokens, tokens
 
     local, _, domain = email.partition("@")
     host = (site_host or "").lower()
@@ -151,7 +151,9 @@ def related_email(email: str, business_name: str, site_host: str) -> str:
         if domain == reg or domain.endswith("." + reg):
             return "same domain as the website"
     label = _alnum(site_label(host))
-    words = [_alnum(t) for t in distinctive_tokens(business_name) if len(_alnum(t)) >= 4]
+    # Only unusual words of the name tie an address to it: "metro" in metrobrands.com says nothing about
+    # "Metro Restaurant". The whole name joined up ("universalnursery") always does.
+    words = [_alnum(t) for t in distinctive_tokens(business_name) if len(_alnum(t)) >= 4 and not _is_common(t)]
     joined = _alnum("".join(tokens(business_name)))
     parts = [_alnum(local)]
     if domain not in FREE_PROVIDERS:
@@ -161,7 +163,7 @@ def related_email(email: str, business_name: str, site_host: str) -> str:
             continue
         if len(label) >= 4 and (label in part or (len(part) >= 6 and part in label)):
             return "matches the website's name"
-        if any(w in part for w in words):
+        if any(w in part for w in words) or (len(joined) >= 6 and joined in part):
             return "contains the business name"
         if len(part) >= 6 and part in joined:
             return "contains the business name"

@@ -246,3 +246,21 @@ def test_small_firm_department_addresses_are_kept():
     res = crawl_site(FakeHttp(router_for(sites)), "https://sarvoteleweb.com/", "SarvoTeleweb.com Kolkata", max_pages=3,
                      known_phones=("+919830077777",))
     assert len(emails_of(res)) == 6 and set(emails_of(res).values()) <= {"high", "medium"}
+
+
+def test_common_word_is_no_tie_and_chain_sites_are_not_read_deeply():
+    from leadgen.enrich.emails import related_email
+    from leadgen.quality import same_business_name
+
+    assert related_email("customercare@metrobrands.com", "Metro Restaurant", "www.metroshoes.com") == ""
+    assert related_email("universalnursery@hotmail.com", "Universal Nursery", "universalfountain.in") != ""
+    assert not same_business_name("Hotel Samrat", "Hotel Sonargaon")
+    assert not same_business_name("FabExpress Nest", "FabExpress Sai City Inn")
+    assert same_business_name("Hotel Orchid Plaza", "Orchid Plaza Hotel")
+    sites = {"https://chainhotels.com/": page("Chain Hotels", '033 2249 2323 <a href="/privacy-policy">Privacy</a>'),
+             "https://chainhotels.com/sitemap.xml": (200, "<urlset><url><loc>https://chainhotels.com/bengaluru/contact-us</loc>"
+                                                          "</url></urlset>", "application/xml"),
+             "https://chainhotels.com/bengaluru/contact-us": page("Contact", '<a href="mailto:gm.bengaluru@chainhotels.com">GM</a>')}
+    http = FakeHttp(router_for(sites))
+    res = crawl_site(http, "https://chainhotels.com/", "La Terrasse", max_pages=10, deep=True, known_phones=("+913322492323",))
+    assert emails_of(res) == {} and not any("bengaluru" in u for _, u in http.calls)

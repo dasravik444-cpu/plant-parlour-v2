@@ -122,7 +122,7 @@ class EmailHunt:
         return idx
 
     def _siblings(self, key: str, name: str, phones: list[str], index: dict) -> list[Sibling]:
-        from .quality import name_score
+        from .quality import same_business_name
 
         own = {key} | {r["key"] for r in self.db.q("SELECT key FROM places WHERE merged_into=?", (key,))}
         own_ids = {k[3:] for k in own if k.startswith("ov:")}
@@ -132,7 +132,7 @@ class EmailHunt:
                 if cand["id"] in own_ids or cand["id"] in seen:
                     continue
                 seen.add(cand["id"])
-                out.append(Sibling(cand["name"], cand["emails"], cand["websites"], name_score(name, cand["name"]) >= 0.6))
+                out.append(Sibling(cand["name"], cand["emails"], cand["websites"], same_business_name(name, cand["name"])))
         return out
 
     def _select(self) -> list[Job]:

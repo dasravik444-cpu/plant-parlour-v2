@@ -266,7 +266,14 @@ def _crawl(http: Http, url: str, business_name: str, *, max_pages: int, region: 
             # Also try the usual contact/about paths directly - many sites don't link them with obvious text.
             common = [root + c for c in COMMON_CONTACT_PATHS]
             extra: list[str] = []
-            if deep:
+            from .emails import site_label as _site_label
+
+            home_label = _site_label(host_of(r.url))
+            own_site = bool(home_label) and (name_match(business_name, "", handle=home_label).handle_full
+                                             or name_score(business_name, "", handle=home_label) >= 0.8)
+            # Deep reading only on the business's own-brand site: on a hotel chain's or parent company's site the
+            # sitemap leads to other properties' pages (Oberoi Bengaluru's manager for a Kolkata restaurant).
+            if deep and own_site:
                 policy_links = [u for u, t in pe.policy_links]
                 extra = _sitemap_pages(http, root) + policy_links[:3] + [root + c for c in POLICY_PATHS]
             for link in ranked + [c for c in common if c not in ranked] + extra:
