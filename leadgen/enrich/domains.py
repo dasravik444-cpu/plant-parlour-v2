@@ -58,7 +58,9 @@ def name_slugs(name: str, city: str = "kolkata") -> list[str]:
 
 
 def candidate_domains(name: str, city: str = "kolkata", extra_labels: tuple = ()) -> list[str]:
-    labels = list(dict.fromkeys([*name_slugs(name, city), *[re.sub(r"[^a-z0-9\-]", "", x.lower()) for x in extra_labels if x]]))
+    slugs = name_slugs(name, city)
+    extra = [re.sub(r"[^a-z0-9\-]", "", x.lower()) for x in extra_labels if x]
+    labels = list(dict.fromkeys([*slugs[:1], *extra, *slugs[1:]]))      # the page name right after the plain name
     return [lab + tld for lab in labels if len(lab) >= 4 for tld in TLDS][:15]
 
 

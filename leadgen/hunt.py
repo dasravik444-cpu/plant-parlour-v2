@@ -54,6 +54,21 @@ class Job:
     phones: list[str]
     address: str
     siblings: list[Sibling] = field(default_factory=list)
+    handles: tuple = ()                    # readable Facebook/Instagram page names - often also the web address
+
+
+def social_handles(urls: list[str]) -> tuple:
+    """'kanchanbakerykolkata' from facebook.com/kanchanbakerykolkata (numeric page ids and short names skipped)."""
+    import re
+
+    out = []
+    for u in urls:
+        m = re.search(r"(?:facebook|instagram)\.com/(?:pg/)?([A-Za-z0-9_.\-]{4,50})/?$", u or "")
+        if m:
+            h = re.sub(r"[^a-z0-9\-]", "", m.group(1).lower().replace("_", "").replace(".", ""))
+            if len(h) >= 5 and not h.isdigit() and not re.search(r"\d{6,}", h) and h not in out:
+                out.append(h)
+    return tuple(out[:2])
 
 
 @dataclass
@@ -134,8 +149,11 @@ class EmailHunt:
             phones = [c["value"] for c in self.db.q(
                 "SELECT value FROM contacts WHERE place_key=? AND kind IN ('phone','whatsapp') AND value LIKE '+%'", (r["key"],))]
             phones = list(dict.fromkeys(phones))
+            socials = [c["value"] for c in self.db.q("SELECT value FROM contacts WHERE place_key=? AND kind IN "
+                                                     "('facebook','instagram') AND confidence!='low'", (r["key"],))]
             jobs.append(Job(r["key"], lead_id(r["lead_no"]), r["name"], r["category"] or "", r["website"] or "",
-                            phones, r["address"] or "", self._siblings(r["key"], r["name"], phones, index)))
+                            phones, r["address"] or "", self._siblings(r["key"], r["name"], phones, index),
+                            social_handles(socials)))
             if len(jobs) >= self.limit:
                 break
         return jobs
@@ -165,7 +183,7 @@ class EmailHunt:
             return out              # no phone number to prove a found site is theirs
         self._check_time()
         out.discovery = discover_website(self.http, job.name, job.phones, job.address, region=self.region, city=self.city,
-                                         resolver=self.resolver)
+                                         resolver=self.resolver, extra_labels=job.handles)
         if out.discovery.url and (not listed or registrable(host_of(out.discovery.url)) != registrable(host_of(listed))):
             out.found_site = crawl_site(self.http, out.discovery.url, job.name, max_pages=pages, region=self.region,
                                         interval=interval, known_phones=tuple(job.phones), deep=True, variants=False)
