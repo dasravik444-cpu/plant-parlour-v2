@@ -36,6 +36,9 @@ jobs:
       GOOGLE_SERVICE_ACCOUNT_JSON: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_JSON }}
       OUTREACH_GMAIL_ADDRESS: ${{ secrets.OUTREACH_GMAIL_ADDRESS }}
       OUTREACH_GMAIL_APP_PASSWORD: ${{ secrets.OUTREACH_GMAIL_APP_PASSWORD }}
+      # Secrets, not variables: variables are printed in the (public) logs.
+      OUTREACH_SENDER_PHONE: ${{ secrets.OUTREACH_SENDER_PHONE }}
+      OUTREACH_NOTIFY_EMAIL: ${{ secrets.OUTREACH_NOTIFY_EMAIL }}
       OUTREACH_LIVE: ${{ vars.OUTREACH_LIVE }}
       # The outreach memory is its own encrypted artifact, separate from the lead-generation memory.
       STATE_DIR: outreach-state

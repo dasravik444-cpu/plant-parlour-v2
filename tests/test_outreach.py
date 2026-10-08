@@ -262,6 +262,26 @@ def test_positive_reply_stops_sequence_alerts_owner_and_queues_whatsapp(tmp_path
     assert len(smtp.to("hello@leafcafe.in")) == 1                 # replied: no follow-up
 
 
+def test_sender_phone_and_alert_address_can_come_from_secrets(tmp_path, monkeypatch):
+    monkeypatch.setenv("OUTREACH_SENDER_PHONE", "+91 98765 43210")
+    sess, client = sheet_with(LEADS[:1])
+    smtp, imap, clock = SmtpWorld(), ImapWorld(), Clock(ts(2026, 10, 14, 18))
+    store = OutreachStore(str(tmp_path / "o.sqlite"))
+    cfg = cfg_with()
+    cfg["outreach"]["sender"] = {**SENDER, "phone": "", "notify_email": ""}
+    runner(cfg, store, client, clock, smtp, imap).run()
+    first = smtp.sent[0]
+    assert "+91 98765 43210" in first.get_content()                     # the secret fills the signature
+    imap.add(mail("Asha <hello@leafcafe.in>", "me@gmail.com", "Re: " + first["Subject"], "Yes, send rates",
+                  in_reply_to=first["Message-ID"]))
+    clock.t = ts(2026, 10, 15, 11)
+    runner(cfg, store, client, clock, smtp, imap).run()
+    assert len(smtp.to("me@gmail.com")) == 1                            # no alert address: the outreach Gmail gets it
+    monkeypatch.setenv("OUTREACH_NOTIFY_EMAIL", "boss@example.com")
+    assert Outreach(cfg, store, live=False, use_sheet=False).o["sender"]["notify_email"] == "boss@example.com"
+    assert cfg["outreach"]["sender"]["notify_email"] == ""              # the config itself is not changed
+
+
 def test_not_interested_reply_opts_out_everywhere(tmp_path):
     sess, client = sheet_with(LEADS[:1])
     smtp, imap, clock = SmtpWorld(), ImapWorld(), Clock(ts(2026, 10, 14, 18))

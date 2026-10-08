@@ -50,6 +50,11 @@ class Outreach:
                  max_emails: int | None = None, now_fn=time.time, sleep_fn=time.sleep, rng=None, use_sheet: bool = True):
         self.cfg, self.store = cfg, store
         self.o = cfg["outreach"]
+        # The repository is public: the owner's number and alert address can come from GitHub secrets instead.
+        env_sender = {k: os.environ.get(v, "").strip() for k, v in (("phone", "OUTREACH_SENDER_PHONE"),
+                                                                    ("notify_email", "OUTREACH_NOTIFY_EMAIL"))}
+        if any(env_sender.values()):
+            self.o = {**self.o, "sender": {**self.o["sender"], **{k: v for k, v in env_sender.items() if v}}}
         self.now, self.sleep = now_fn, sleep_fn
         self.rng = rng or random.Random()
         self.max_emails = max_emails
@@ -106,7 +111,8 @@ class Outreach:
         s = self.o["sender"]
         missing = [k for k in ("name", "business", "phone", "city") if not str(s.get(k, "")).strip()]
         if missing:
-            return f"fill in [outreach.sender] {', '.join(missing)} in the config before going live"
+            hint = " (the phone can be the OUTREACH_SENDER_PHONE secret)" if "phone" in missing else ""
+            return f"fill in [outreach.sender] {', '.join(missing)} in the config before going live{hint}"
         if self.sender is None:
             return "set the OUTREACH_GMAIL_ADDRESS and OUTREACH_GMAIL_APP_PASSWORD secrets before going live"
         return ""
@@ -646,10 +652,11 @@ class Outreach:
         sheet.set_lead_statuses(self.status_updates)
 
     def _notify_owner(self) -> None:
-        to = str(self.o["sender"].get("notify_email") or "").strip()
         hot = [r for r in self.new_replies if r["kind"] in ("positive", "other")]
-        if not (to and hot and self.live and self.sender):
+        if not (hot and self.live and self.sender):
             return
+        # No alert address set: the alert goes to the outreach Gmail itself (its phone app shows it).
+        to = str(self.o["sender"].get("notify_email") or "").strip() or self.sender.address
         lines = []
         for r in hot:
             lead = r["lead"]

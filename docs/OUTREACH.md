@@ -53,9 +53,16 @@ the tool. What gets a number restricted is people blocking or reporting it, so t
    <https://myaccount.google.com/apppasswords>, create one named "Outreach" and copy the 16 letters.
    (If you ever change the account's password, create a new app password.)
 3. **GitHub secrets** (Settings > Secrets and variables > Actions > New repository secret):
-   `OUTREACH_GMAIL_ADDRESS` = the Gmail address, `OUTREACH_GMAIL_APP_PASSWORD` = the 16 letters.
-4. **Your details:** in `config/plant-parlour.toml`, section `[outreach.sender]`, fill in `phone` (your
-   WhatsApp number) and `notify_email` (where reply alerts go); check `name`.
+
+   | Name | Value |
+   |---|---|
+   | `OUTREACH_GMAIL_ADDRESS` | the outreach Gmail address |
+   | `OUTREACH_GMAIL_APP_PASSWORD` | the 16 letters |
+   | `OUTREACH_SENDER_PHONE` | your WhatsApp Business number, e.g. `+91 98XXX XXXXX` (shown under every e-mail) |
+   | `OUTREACH_NOTIFY_EMAIL` *(optional)* | where reply alerts go, e.g. your main Gmail. Without it they go to the outreach Gmail |
+
+   Secrets stay hidden; the repository itself is public, so don't put your number or e-mail in its files.
+4. **Your name:** `config/plant-parlour.toml`, section `[outreach.sender]`: check `name` (shown as the sender).
 5. **Switch on the dry-run:** Settings > Secrets and variables > Actions > *Variables*: add
    `OUTREACH_ENABLED` = `true`. Every hour the system now fills **Email Preview** with the exact e-mails it
    would send (nothing is sent). Read a few. To change the wording, edit `[outreach.email]` (see below).

@@ -112,9 +112,10 @@ mode = "dry-run"
 [outreach.sender]
 name = "Ravik Das"            # shown as the sender and under every e-mail
 business = "Plant Parlour"
-phone = ""                    # REQUIRED before going live, e.g. "+91 98XXX XXXXX" (your WhatsApp number)
+phone = ""                    # REQUIRED before going live: your WhatsApp number. Best set as the GitHub secret
+                              # OUTREACH_SENDER_PHONE (this file is public); e.g. "+91 98XXX XXXXX"
 city = "Kolkata"
-notify_email = ""             # your own e-mail: an alert arrives there whenever a lead replies
+notify_email = ""             # where reply alerts go; best as the secret OUTREACH_NOTIFY_EMAIL. Empty = the outreach Gmail
 
 [outreach.email]
 start_per_day = 15            # warm-up: a new Gmail account starts slowly...
