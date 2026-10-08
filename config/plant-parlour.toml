@@ -120,6 +120,8 @@ city = "Kolkata"
 notify_email = ""             # where reply alerts go; best as the secret OUTREACH_NOTIFY_EMAIL. Empty = the outreach Gmail
 
 [outreach.email]
+enabled = false               # PAUSED: automatic sending waits for the owner's go-ahead after the first test e-mails.
+                              # (A manual Outreach run with "max_emails" still sends that many.) Set true to start.
 start_per_day = 15            # warm-up: a new Gmail account starts slowly...
 step = 5                      # ...and adds 5 a day every 3 days of sending...
 step_every_days = 3

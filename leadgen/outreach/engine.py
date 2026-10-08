@@ -317,7 +317,9 @@ class Outreach:
 
     def _send_emails(self) -> None:
         e = self.o["email"]
-        if not e["enabled"]:
+        if not e["enabled"] and self.max_emails is None:
+            # Paused by the owner; a manual run with "max_emails" still sends that many (test e-mails).
+            self.notes.append("e-mail sending paused in the config ([outreach.email] enabled = false)")
             return
         local = self._local()
         today = local.date().isoformat()
