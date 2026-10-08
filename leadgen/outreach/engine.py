@@ -217,6 +217,9 @@ class Outreach:
 
     # ------------------------------------------------------------------ inbox
     def _check_inbox(self) -> None:
+        if not self.o["email"]["enabled"] and self.max_emails is None and \
+                not self.store.scalar("SELECT COUNT(*) FROM threads", (), 0):
+            return              # e-mail paused and nothing ever sent: no replies to read (and no hourly login errors)
         if self.inbox is None:
             if self.live:
                 self.notes.append("inbox not checked: Gmail secrets missing")
