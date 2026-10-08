@@ -83,6 +83,8 @@ instagram_profile = true
 check_email_mx = true
 role_email_candidates = true   # for a lead with its own website but no published email, add info@/contact@
                                # as UNVERIFIED candidates (domain accepts mail) - never shown as confirmed
+email_hunt = false             # daily deeper e-mail search for leads still without one (see docs/ARCHITECTURE.md);
+                               # off until its first real trial has been checked by hand
 workers = 6
 search_interval_s = 4.5
 site_interval_s = 2.0

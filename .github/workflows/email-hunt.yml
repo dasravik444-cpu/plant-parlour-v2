@@ -64,7 +64,7 @@ jobs:
       - name: Hunt e-mails
         if: inputs.hunt_limit != '0' && inputs.hunt_limit != ''
         run: |
-          args=(email-hunt --limit "${{ inputs.hunt_limit }}" --budget-minutes "${{ inputs.budget_minutes }}" --detail-csv "$RUNNER_TEMP/hunt-detail.csv")
+          args=(email-hunt --force --limit "${{ inputs.hunt_limit }}" --budget-minutes "${{ inputs.budget_minutes }}" --detail-csv "$RUNNER_TEMP/hunt-detail.csv")
           if [ "${{ inputs.persist_state }}" != "true" ]; then args+=(--no-sheets); fi
           python -m leadgen "${args[@]}"
       - name: Audit after

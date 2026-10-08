@@ -68,6 +68,7 @@ def build_parser() -> argparse.ArgumentParser:
     h.add_argument("--workers", type=int, default=None)
     h.add_argument("--no-sheets", action="store_true", help="do not update the Google Sheet")
     h.add_argument("--detail-csv", default="", help="per-lead results (contains contacts - local/encrypted use only)")
+    h.add_argument("--force", action="store_true", help="run even when [enrich] email_hunt = false (manual trials)")
     d = sub.add_parser("doctor", help="health checks")
     _common(d)
     d.add_argument("--live", action="store_true", help="also test Google Maps and a website fetch")
@@ -129,6 +130,10 @@ def main(argv=None) -> int:
             return 0
         if args.cmd == "email-hunt":
             from .hunt import EmailHunt
+
+            if not cfg["enrich"].get("email_hunt", True) and not args.force:
+                print("e-mail hunt is switched off ([enrich] email_hunt = false) - nothing to do")
+                return 0
 
             code, summary = EmailHunt(cfg, db, limit=args.limit, budget_minutes=args.budget_minutes, workers=args.workers,
                                       use_sheets=not args.no_sheets, detail_path=args.detail_csv).run()
