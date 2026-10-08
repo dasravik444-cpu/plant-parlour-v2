@@ -28,6 +28,8 @@ cat = head.index("Category") if "Category" in head else 0
 for r in rows[1:]:
     groups[r[cat]].append(r)
 picked, limit = [], int(sys.argv[3])
+if "Outcome" in head:            # e-mail hunt results: already ordered (new e-mails first) - keep the order
+    groups = {"all": rows[1:]}
 while len(picked) < limit and any(groups.values()):
     for g in groups.values():
         if g and len(picked) < limit:

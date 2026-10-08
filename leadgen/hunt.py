@@ -383,4 +383,5 @@ class EmailHunt:
             w.writerow(["Lead ID", "Business", "Category", "Listed website", "Outcome", "Site status", "Site error",
                         "Name match", "Site is theirs", "Pages read", "Website found", "Why accepted", "Domains existing/tried",
                         "Rejected", "E-mails now (value [confidence] note <source>)"])
-            w.writerows(self.details)
+            # Leads that gained an e-mail first: the maintainer's sample is checked by hand.
+            w.writerows(sorted(self.details, key=lambda r: (not str(r[4]).startswith("e-mail found"), r[4])))
