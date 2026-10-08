@@ -1,6 +1,7 @@
 """E-mail coverage audit and the extra e-mail hunt."""
 from __future__ import annotations
 
+import json
 import re
 
 from leadgen.audit import email_audit, format_audit
@@ -156,3 +157,30 @@ def test_hunt_adds_real_emails_records_each_lead_once(tmp_path):
     code, s2 = EmailHunt(cfg, db, limit=10, use_sheets=False, http=FakeHttp(router_for(sites)),
                          resolver=FakeResolver(set()), workers=2).run()
     assert s2["leads_looked_at"] == 0
+
+
+def test_hunt_uses_other_listings_with_the_same_phone(tmp_path):
+    db = DB(str(tmp_path / "s.sqlite"))
+    cfg = make_config()
+
+    def listing(id_, name, phones, emails=(), websites=()):
+        db.conn.execute("INSERT INTO open_places(id,release,name,lat,lng,phones,emails,websites) VALUES(?,?,?,?,?,?,?,?)",
+                        (id_, "r1", name, 22.5, 88.3, json.dumps(phones), json.dumps(list(emails)), json.dumps(list(websites))))
+
+    with db.tx():
+        place(db, "ov:a1", "Hotel Orchid Plaza")
+        db.add_contact("ov:a1", "phone", "+918100184448", source="overture", confidence="medium")
+        listing("a1", "Hotel Orchid Plaza", ["+91 81001 84448"])                                  # the lead's own record
+        listing("a2", "Orchid Plaza Hotel", ["+918100184448"], emails=["stay@orchidplaza.in"])    # same hotel, other source
+        listing("a3", "City Mall Help Desk", ["+918100184448"], emails=["helpdesk@citymall.in"])  # shared number
+        place(db, "ov:b1", "Aim Gym")
+        db.add_contact("ov:b1", "phone", "+917980017979", source="overture", confidence="medium")
+        listing("b2", "AIM Gym Kolkata", ["07980017979"], websites=["https://aimgym.in/"])
+    sites = {"https://aimgym.in/": page("AIM Gym", "Join now! 79800 17979 - aimgymkol@gmail.com")}
+    code, s = EmailHunt(cfg, db, limit=10, use_sheets=False, http=FakeHttp(router_for(sites)), resolver=FakeResolver(set()),
+                        workers=1).run()
+    conf = {r["value"]: r["confidence"] for r in db.q("SELECT value, confidence FROM contacts WHERE place_key='ov:a1' AND kind='email'")}
+    assert conf == {"stay@orchidplaza.in": "medium", "helpdesk@citymall.in": "low"}
+    assert s["outcomes"]["e-mail found in another listing (same phone)"] == 1
+    assert s["outcomes"]["e-mail found on a website named in another listing"] == 1
+    assert db.scalar("SELECT website FROM places WHERE key='ov:b1'") == "https://aimgym.in/"

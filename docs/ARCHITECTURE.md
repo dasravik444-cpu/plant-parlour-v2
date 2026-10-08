@@ -100,6 +100,35 @@ seen only in a search snippet) go to the *Other Contacts (unverified)* column.
 * **Foreign numbers** on an Indian business's website are unverified. Landlines
   from another region (Delhi +91 11...) are labelled as likely booking-platform
   lines; Indian mobile ranges are labelled *mobile*.
+* **Plain-text e-mails on the business's own site** count when they carry the
+  site's domain or the business's name (`leafcafe.kolkata@gmail.com` on
+  leafcafe.in). Other addresses written there (a supplier's, the web
+  designer's) stay unverified.
+
+## E-mail hunt (leads still without an e-mail)
+
+`python -m leadgen email-hunt` (part of every daily run, and the manual workflow
+*E-mail hunt*) looks once more at each lead without a usable e-mail:
+
+0. **Other listings with the same phone number** in the open data: with a
+   similar name it is the same business listed again (e.g. its Facebook page
+   and its own listing) and its e-mail/website is used; a different name (a
+   shared switchboard number) only gives an unverified note.
+1. **Its own website, deeper:** privacy/terms pages and the sitemap's contact
+   pages; http/https and with/without www when it does not answer; robots.txt
+   that cannot be read is retried (not reported as a refusal); e-mails kept in
+   site-builder settings.
+2. **A website the listing lacks:** the obvious domains for its name
+   (`kanchanbakery.com/.in/.co.in`, with and without "kolkata") are checked
+   with one DNS lookup each. A site is accepted only when it shows the
+   business's own phone number (homepage or contact page), or its exact name
+   with its PIN code. Parked and for-sale domains are rejected. Then it is read
+   like step 1.
+
+Nothing is guessed: every e-mail kept comes from a page of the business's own
+site (the page is its source) or from the open data. Small businesses that have
+no website and no e-mail on their Facebook page usually have no public e-mail
+at all; for them the phone/WhatsApp is the route.
 
 ## Open-data mode (default)
 
