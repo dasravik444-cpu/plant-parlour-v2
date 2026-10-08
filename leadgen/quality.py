@@ -250,6 +250,21 @@ def name_match(business: str, candidate: str, handle: str = "") -> _Match:
     return m
 
 
+def weak_site_name(business: str, titles: list[str], domain_label: str) -> bool:
+    """True when a website seems to be this business only through one common word ("Metro Restaurant" and
+    metroshoes.net share just "metro"); its own phone number on the site is then needed as proof."""
+    if domain_label:
+        hm = name_match(business, "", handle=domain_label)
+        if hm.handle_full and hm.score >= 0.6:
+            return False                 # the domain spells the business's name
+    matches = [name_match(business, t) for t in titles if t]
+    best = max(matches, key=lambda m: m.score, default=None)
+    if best is None or best.score < 0.6:
+        return False
+    hits = [t for t in best.dist if t in best.covered]
+    return bool(hits) and all(_is_common(t) or len(t) < 4 for t in hits)
+
+
 def name_score(business: str, candidate: str, handle: str = "") -> float:
     """0..1 similarity between a business name and a candidate profile/page name or handle."""
     return name_match(business, candidate, handle).score

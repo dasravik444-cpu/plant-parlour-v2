@@ -198,3 +198,51 @@ def test_hunt_stops_starting_work_when_its_time_is_up(tmp_path):
                         resolver=FakeResolver(set()), workers=1, now_fn=clock).run()
     assert s["outcomes"] == {"not reached (time budget)": 3}
     assert db.scalar("SELECT COUNT(*) FROM tasks WHERE kind='hunt'") == 0      # looked at again next time
+
+
+def emails_of(res):
+    return {c.value: c.confidence for c in res.contacts if c.kind == "email"}
+
+
+def test_chain_list_page_keeps_only_this_outlets_address():
+    others = " ".join(f'<a href="mailto:generalmanager.{c}@grandchain.com">{c}</a>'
+                      for c in ("bali", "agra", "mumbai", "delhi", "goa", "jaipur", "udaipur", "shimla"))
+    sites = {"https://grandchain.com/": page("Grand Chain Hotels & Resorts", 'Kolkata: 033 2249 2323 <a href="/contact-us">Contact</a>'),
+             "https://grandchain.com/contact-us": page("Contact", others + ' <a href="mailto:reservations.kolkata@grandchain.com">'
+                                                                         'Kolkata</a>')}
+    res = crawl_site(FakeHttp(router_for(sites)), "https://grandchain.com/", "La Terrasse", max_pages=4,
+                     known_phones=("+913322492323",))
+    assert emails_of(res) == {"reservations.kolkata@grandchain.com": "medium"}          # no other property's GM
+
+
+def test_member_list_page_is_not_harvested():
+    members = " ".join(f"Dr Member {i}: drmember{i}@gmail.com" for i in range(8))
+    sites = {"https://childhealth.org/": page("Institute of Child Health", 'Call 033 2280 1111 <a href="mailto:kolkataich@gmail.com">'
+                                                                            'Write</a> <a href="/about/members">About</a>'),
+             "https://childhealth.org/about/members": page("General body", members)}
+    res = crawl_site(FakeHttp(router_for(sites)), "https://childhealth.org/", "Mrinalini Cancer Research Center", max_pages=4,
+                     known_phones=("+913322801111",))
+    assert set(emails_of(res)) == {"kolkataich@gmail.com"}                              # personal addresses not stored
+
+
+def test_policy_page_addresses_need_a_tie_and_common_word_sites_need_the_phone():
+    sites = {"https://leafcafe.in/": page("Leaf Cafe", '98300 11111 <a href="/privacy-policy">Privacy</a>'),
+             "https://leafcafe.in/privacy-policy": page("Privacy", '<a href="mailto:dpo@paymentpartner.com">DPO</a> '
+                                                                    '<a href="mailto:privacy@leafcafe.in">us</a>')}
+    res = crawl_site(FakeHttp(router_for(sites)), "https://leafcafe.in/", "Leaf Cafe", max_pages=6, deep=True,
+                     known_phones=("+919830011111",))
+    assert emails_of(res) == {"privacy@leafcafe.in": "high", "dpo@paymentpartner.com": "low"}
+    shoes = {"http://metroshoes.net/": page("Metro Shoes | Buy Footwear Online", '<a href="mailto:care@metroshoes.net">care</a> '
+                                                                                  "Call 1800 000 0000")}
+    res = crawl_site(FakeHttp(router_for(shoes)), "http://metroshoes.net/", "Metro Restaurant", max_pages=2,
+                     known_phones=("+913322520000",))
+    assert not res.owned and emails_of(res) == {"care@metroshoes.net": "low"}
+
+
+def test_small_firm_department_addresses_are_kept():
+    depts = " ".join(f'<a href="mailto:{d}@sarvoteleweb.com">{d}</a>' for d in ("info", "sales", "billing", "support", "desk", "hr"))
+    sites = {"https://sarvoteleweb.com/": page("SarvoTeleweb", 'Call 98300 77777 <a href="/contact">Contact</a>'),
+             "https://sarvoteleweb.com/contact": page("Contact", depts)}
+    res = crawl_site(FakeHttp(router_for(sites)), "https://sarvoteleweb.com/", "SarvoTeleweb.com Kolkata", max_pages=3,
+                     known_phones=("+919830077777",))
+    assert len(emails_of(res)) == 6 and set(emails_of(res).values()) <= {"high", "medium"}

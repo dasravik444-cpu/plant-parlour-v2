@@ -6,7 +6,7 @@ from dataclasses import dataclass, field
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
 from ..net import BreakerOpen, DeadlineReached, FetchError, Http, NetworkDown
-from ..quality import is_aggregator, is_link_hub, name_score
+from ..quality import distinctive_tokens, is_aggregator, is_link_hub, name_match, name_score, weak_site_name
 from ..util import get_logger
 from .extract import Found, ad_signals, canonical_social, extract_page, host_of, rank_contact_links, registrable
 
@@ -149,8 +149,25 @@ def _sitemap_pages(http: Http, root: str, limit: int = 4) -> list[str]:
     return out
 
 
+REGION_WORDS = ("kolkata", "calcutta", "kol", "ccu", "westbengal", "bengal")
+
+
+def outlet_email(email: str, business_name: str, site_host: str, region_words=REGION_WORDS) -> bool:
+    """On a chain's list of addresses, the one for this outlet: its own name or the city in the address
+    (reservations.kolkata@chain.com, ego.bar@hotel.com) - never the chain's other properties."""
+    from .emails import _alnum, site_label
+
+    local = _alnum(email.partition("@")[0])
+    label = _alnum(site_label(site_host))
+    words = [_alnum(t) for t in distinctive_tokens(business_name) if len(_alnum(t)) >= 4 and _alnum(t) not in label]
+    if any(w in local for w in words):
+        return True
+    return any(len(r) >= 3 and r in local for r in region_words if len(r) >= 5 or local.endswith(r) or local.startswith(r))
+
+
 def _crawl(http: Http, url: str, business_name: str, *, max_pages: int, region: str, interval: float,
            known_phones: tuple | list, deep: bool) -> SiteResult:
+    region_words = REGION_WORDS
     social = canonical_social(url)
     if social:
         return SiteResult(status="social", contacts=[Contact(social[0], social[1], "google_maps", url, "high", "listed as website")])
@@ -159,6 +176,9 @@ def _crawl(http: Http, url: str, business_name: str, *, max_pages: int, region: 
 
     res = SiteResult(status="ok")
     found: dict[tuple[str, str], tuple[Found, str]] = {}
+    page_emails: dict[str, set] = {}          # page -> distinct e-mails on it (lists of many are directories)
+    deep_requested: set[str] = set()          # pages queued only by the deep crawl (sitemap, policy pages)
+    deep_pages: set[str] = set()
     queue = [url]
     visited: set[str] = set()
     site_host = host_of(url)
@@ -251,19 +271,34 @@ def _crawl(http: Http, url: str, business_name: str, *, max_pages: int, region: 
             for link in ranked + [c for c in common if c not in ranked] + extra:
                 if link not in visited and link not in queue:
                     queue.append(link)
+                    if link in extra and link not in ranked and link not in common:
+                        deep_requested.add(link)
         phones_here = {f.value for f in pe.found if f.kind == "phone"}
         if len(phones_here) >= 5:
             multi_phone_pages += 1
+        page_emails[r.url] = {f.value for f in pe.found if f.kind == "email"}
+        if page in deep_requested:
+            deep_pages.add(r.url)
         for f in pe.found:
             found.setdefault((f.kind, f.value), (f, r.url))
 
     # Does this site look like it belongs to the business?
-    domain_core = registrable(site_host).split(".")[0]
-    res.name_match = max([name_score(business_name, t) for t in titles if t] + [name_score(business_name, "", handle=domain_core)])
+    from .emails import site_label
+
+    domain_core = site_label(site_host) or registrable(site_host).split(".")[0]
+    handle_score = name_score(business_name, "", handle=domain_core)
+    res.name_match = max([name_score(business_name, t) for t in titles if t] + [handle_score])
     name_ok = res.name_match >= 0.6
     distinct_phones = {v for (k, v) in found if k == "phone"}
     on_site_numbers = {v for (k, v) in found if k in ("phone", "whatsapp")}
-    res.owned = name_ok or bool(on_site_numbers & set(known_phones or ()))
+    phone_proof = bool(on_site_numbers & set(known_phones or ()))
+    if name_ok and not phone_proof and weak_site_name(business_name, [t for t in titles if t], domain_core):
+        name_ok = False      # only a common word in common ("Metro Restaurant" / metroshoes.net)
+    res.owned = name_ok or phone_proof
+    # The site carries the business's own name (its brand), not a parent company's or a chain's.
+    own_brand = name_match(business_name, "", handle=domain_core).handle_full or handle_score >= 0.8
+    all_emails = {v for (k, v) in found if k == "email"}
+    big_site = len(all_emails) >= 10
     if not res.owned and res.final_url and registrable(host_of(res.final_url)) != registrable(host_of(url)):
         # The listed address now forwards to an unrelated site (expired or taken-over domain).
         return SiteResult(status="moved", final_url=res.final_url, pages=res.pages, name_match=res.name_match,
@@ -283,14 +318,22 @@ def _crawl(http: Http, url: str, business_name: str, *, max_pages: int, region: 
             from .emails import email_label, related_email, suspicious_email
 
             label = email_label(value, registrable(site_host))
+            tie = related_email(value, business_name, site_host)
+            if big_site or len(page_emails.get(page_url, ())) >= 6:
+                # A directory: a chain's list of properties, a staff or member list. Only an address that is
+                # clearly this business's is kept - the others (other branches, people's own mailboxes) are
+                # not stored at all.
+                if not (own_brand and tie) and not outlet_email(value, business_name, site_host, region_words):
+                    continue
             if not res.owned:
                 label = (label + ",site may belong to another business").strip(",")
-            elif conf == "low" and f.how in ("text", "script") and not multi_location:
+            elif page_url in deep_pages and not tie:
+                # Policy pages name data-protection officers, parent companies, payment partners...
+                conf, label = "low", (label + ",found on a policy page").strip(",")
+            elif conf == "low" and f.how in ("text", "script") and not multi_location and tie:
                 # Plain text on the business's own site: theirs when the address carries the site's domain
                 # or name (a supplier's or web designer's address does not).
-                tie = related_email(value, business_name, site_host)
-                if tie:
-                    conf, label = "medium", (label + "," + tie).strip(",")
+                conf, label = "medium", (label + "," + tie).strip(",")
             why = suspicious_email(value)
             if why:
                 # Published like this on the site, but probably undeliverable: keep it, as unverified.

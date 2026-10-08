@@ -45,7 +45,8 @@ def email_audit(db: DB, cfg) -> dict:
     with_email = [k for k in by_key if good(k, "email")]
     src = Counter()
     for k in with_email:
-        for s in {s.split("|", 1)[0] for c in good(k, "email") for s in (jload(c["sources"], []) or [c["source"]])}:
+        names = {s.split("|", 1)[0] for c in good(k, "email") for s in (jload(c["sources"], []) or [c["source"]])}
+        for s in names - {"guess"}:      # a guessed info@ later found on the site counts as found there
             src[s] += 1
     cats = defaultdict(lambda: [0, 0, 0])
     for k, r in by_key.items():
