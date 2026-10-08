@@ -177,6 +177,7 @@ def _crawl(http: Http, url: str, business_name: str, *, max_pages: int, region: 
     res = SiteResult(status="ok")
     found: dict[tuple[str, str], tuple[Found, str]] = {}
     page_emails: dict[str, set] = {}          # page -> distinct e-mails on it (lists of many are directories)
+    claims: list[tuple[str, str]] = []        # (text, page) the business's own words about itself
     deep_requested: set[str] = set()          # pages queued only by the deep crawl (sitemap, policy pages)
     deep_pages: set[str] = set()
     queue = [url]
@@ -277,6 +278,8 @@ def _crawl(http: Http, url: str, business_name: str, *, max_pages: int, region: 
         if len(phones_here) >= 5:
             multi_phone_pages += 1
         page_emails[r.url] = {f.value for f in pe.found if f.kind == "email"}
+        if not is_contact_page or re.search(r"about|story|who-we-are|our-", urlsplit(r.url).path, re.I):
+            claims += [(c, r.url) for c in pe.claims]
         if page in deep_requested:
             deep_pages.add(r.url)
         for f in pe.found:
@@ -345,6 +348,12 @@ def _crawl(http: Http, url: str, business_name: str, *, max_pages: int, region: 
     if res.owned:
         for label, page_url in signals.items():
             res.contacts.append(Contact("signal", label, "website", page_url, "high", "", "ad tracking code on the website"))
+        from .usp import pick_usp
+
+        usp = pick_usp([c for c, _ in claims], business_name)
+        if usp:
+            page_url = next((u for c, u in claims if usp.lower()[:30] in c.lower()), res.final_url or url)
+            res.contacts.append(Contact("usp", usp, "website", page_url, "medium", "", "the business's own words on its website"))
     if not res.pages:
         res.status = "error"
         res.error = res.error or "no pages fetched"

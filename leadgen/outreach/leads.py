@@ -14,7 +14,7 @@ FREE_MAIL = {"gmail.com", "googlemail.com", "yahoo.com", "yahoo.co.in", "yahoo.i
 
 # Columns outreach reads (by header name, so column order does not matter).
 COLUMNS = ["Lead ID", "Business Name", "Category", "Area", "Phones", "WhatsApp", "Emails", "Contact Person", "Website",
-           "Priority", "Key", "Status", "Other Contacts (unverified)", "Signals"]
+           "Priority", "Key", "Status", "Other Contacts (unverified)", "Signals", "USP"]
 
 # Statuses written by the system. A lead whose Status is blank, "New" or one of these is handled by the
 # automation; anything else typed by the owner ("Customer", "Called", "Do not contact"...) means hands off.
@@ -48,6 +48,7 @@ class Lead:
     priority: str = ""
     status: str = ""
     signals: str = ""
+    usp: str = ""                       # the business's own one-line claim (from its website), if any
 
     @property
     def system_managed(self) -> bool:
@@ -126,7 +127,7 @@ def parse_lead(values: dict, row: int, cfg) -> Lead | None:
                 whatsapp=[e for e, _ in _parse_numbers(values.get("WhatsApp"), region)],
                 person=str(values.get("Contact Person") or "").strip(), website=str(values.get("Website") or "").strip(),
                 priority=str(values.get("Priority") or "").strip(), status=str(values.get("Status") or "").strip(),
-                signals=str(values.get("Signals") or "").strip())
+                signals=str(values.get("Signals") or "").strip(), usp=str(values.get("USP") or "").strip())
 
 
 def read_leads(client, tab: str, cfg) -> list[Lead]:

@@ -1,8 +1,10 @@
 """Message templates. Plain text, no links, no images, no tracking: what reaches inboxes, not spam folders.
 
 Every template can be replaced in the config ([outreach.email] / [outreach.whatsapp] / [outreach.hooks]).
-Placeholders: {greeting} {business} {first_name} {audience} {place} {hook} {sender_name} {sender_first}
-{sender_business} {sender_phone} {sender_city}
+Placeholders: {greeting} {business} {first_name} {audience} {place} {hook} {usp} {intro} {sender_name}
+{sender_first} {sender_business} {sender_phone} {sender_city}
+{intro} quotes the business's own USP line from its website when there is one ("I came across X and liked this
+line on your website: ..."), otherwise it says where we came across them.
 """
 from __future__ import annotations
 
@@ -18,9 +20,9 @@ SUBJECTS = [
 
 FIRST_EMAIL = """{greeting}
 
-I came across {business} while looking at {audience} in {place}. {hook}
+I'm {sender_first} from {sender_business}, a wholesale plant supplier in {sender_city}. {intro} {hook}
 
-I'm {sender_first} from {sender_business}, a wholesale plant supplier in {sender_city}. We supply indoor, outdoor and flowering plants, planters and green walls at wholesale prices, and can also take care of styling and regular plant maintenance.
+We supply indoor, outdoor and flowering plants, planters and green walls at wholesale prices, and can also take care of styling and regular plant maintenance.
 
 Would it help if I sent you our price list, with a few ideas for {business}? Just reply "yes" and I'll share it here or on WhatsApp.
 
@@ -84,8 +86,10 @@ AUDIENCE = {
     "real_estate": "builders and property developers", "education": "schools and colleges", "default": "local businesses",
 }
 
-PLACEHOLDERS = {"greeting", "business", "first_name", "first_name_or_team", "audience", "place", "hook", "sender_name",
-                "sender_first", "sender_business", "sender_phone", "sender_city"}
+PLACEHOLDERS = {"greeting", "business", "first_name", "first_name_or_team", "audience", "place", "hook", "usp", "intro",
+                "sender_name", "sender_first", "sender_business", "sender_phone", "sender_city"}
+INTRO_USP = 'I came across {business} and liked this line on your website: "{usp}".'
+INTRO_PLAIN = "I came across {business} while looking at {audience} in {place}."
 
 
 def unknown_placeholders(template: str) -> set[str]:
@@ -132,4 +136,7 @@ def context(lead, oc: dict) -> dict:
         "sender_city": s.get("city", "").strip(),
     }
     ctx["hook"] = render(hooks.get(lead.category_key) or hooks["default"], ctx)
+    usp = re.sub(r"\s+", " ", getattr(lead, "usp", "") or "").strip().strip(".").replace('"', "'")
+    ctx["usp"] = usp
+    ctx["intro"] = render(INTRO_USP if usp else INTRO_PLAIN, ctx)
     return ctx

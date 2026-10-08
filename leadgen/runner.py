@@ -204,6 +204,10 @@ class Runner:
                 self._add_role_candidates()
             except Exception as exc:  # noqa: BLE001 - a candidate-generation slip must not fail the run
                 log.warning("role-email candidates skipped: %s", exc)
+            try:
+                self._backfill_usp()
+            except Exception as exc:  # noqa: BLE001
+                log.warning("USP backfill skipped: %s", exc)
             planner.refresh_part_status(self.today)
         except PlanMismatch as exc:
             self.warnings.append(str(exc))
@@ -293,6 +297,25 @@ class Runner:
         if added:
             self.stats["role_email_candidates"] = added
             log.info("added %d role-email candidates (unverified) for leads with a website but no published e-mail", added)
+
+    def _backfill_usp(self) -> None:
+        """Once: a USP line for leads crawled before USPs existed, from the website description already stored."""
+        if self.db.get_meta("usp_backfill") == "v1":
+            return
+        from .enrich.usp import pick_usp
+
+        added = 0
+        with self.db.tx():
+            for r in self.db.q("SELECT key, name, website, description FROM places WHERE qualified=1 AND excluded IS NULL "
+                               "AND merged_into IS NULL AND description IS NOT NULL AND description!='' AND key NOT IN "
+                               "(SELECT place_key FROM contacts WHERE kind='usp')"):
+                usp = pick_usp([r["description"]], r["name"])
+                if usp and self.db.add_contact(r["key"], "usp", usp, source="website", source_url=r["website"] or "",
+                                               confidence="medium", evidence="the business's own words on its website"):
+                    added += 1
+            self.db.set_meta("usp_backfill", "v1")
+        if added:
+            log.info("USP line added for %d earlier leads (from their website descriptions)", added)
 
     def _resolve_auto_target(self, plan: dict) -> None:
         """daily_target = "auto": aim for (all businesses in the area / number of days) each day,

@@ -75,6 +75,7 @@ class Outreach:
         self.new_replies: list[dict] = []
         self.preview: list[list] = []
         self.wa_rows: list[list] = []
+        self.sent_log: list[list] = []       # (lead id, business, to, result, subject, body) of this run's e-mails
         self.leads: list[Lead] = []
         self.by_key: dict[str, Lead] = {}
 
@@ -105,7 +106,7 @@ class Outreach:
     def _score(self, lead: Lead) -> tuple:
         boost = set(self.o.get("boost_categories") or [])
         return (PRIORITY_RANK.get(lead.priority.lower(), 3), 0 if lead.category_key in boost else 1,
-                0 if lead.signals else 1, _id_num(lead.lead_id))
+                0 if lead.signals else 1, 0 if lead.usp else 1, _id_num(lead.lead_id))
 
     def _sender_problem(self) -> str:
         s = self.o["sender"]
@@ -456,6 +457,8 @@ class Outreach:
                     self.notes.append(f"skipped {item['email']}: {type(exc).__name__}: {exc}"[:200])
                     continue
                 self._record(item, msg, res)
+                self.sent_log.append([item["lead"].lead_id, item["lead"].business, item["email"], res.status,
+                                      msg["Subject"], msg.get_content().strip()])
                 if res.ok:
                     temp_failures = 0
                     continue

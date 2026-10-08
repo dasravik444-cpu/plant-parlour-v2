@@ -16,6 +16,9 @@ on:
       max_emails:
         description: "Send at most this many e-mails in this run (testing; empty = normal pacing)"
         default: ""
+      maintainer_pubkey:
+        description: "Optional: base64 RSA public key - prints an ENCRYPTED copy of the e-mails sent (quality check)"
+        default: ""
 
 permissions:
   contents: read
@@ -66,7 +69,13 @@ jobs:
           args=(outreach)
           if [ -n "${{ inputs.mode }}" ]; then args+=(--mode "${{ inputs.mode }}"); fi
           if [ -n "${{ inputs.max_emails }}" ]; then args+=(--max-emails "${{ inputs.max_emails }}"); fi
-          python -m leadgen "${args[@]}"
+          OUTREACH_SENT_CSV="$RUNNER_TEMP/sent.csv" python -m leadgen "${args[@]}"
+      - name: Encrypted copy of the e-mails sent (maintainer check)
+        if: always() && github.event_name == 'workflow_dispatch' && inputs.maintainer_pubkey != ''
+        env:
+          PUBKEY_B64: ${{ inputs.maintainer_pubkey }}
+        run: |
+          if [ -f "$RUNNER_TEMP/sent.csv" ]; then SAMPLE_CSV="$RUNNER_TEMP/sent.csv" bash scripts/ci/encrypted_sample.sh; else echo "no e-mails sent"; fi
       - name: Save outreach state (encrypted)
         # Only after a successful restore, so a failed restore never replaces the saved state.
         if: always() && steps.restore.outcome == 'success'

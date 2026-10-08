@@ -5,7 +5,7 @@
 # holder of the private key can read the sample printed below.
 set -euo pipefail
 DB="${DB:-state/leadgen.sqlite}"
-if [ ! -f "$DB" ] || [ -z "${PUBKEY_B64:-}" ]; then
+if { [ ! -f "$DB" ] && [ ! -f "${SAMPLE_CSV:-}" ]; } || [ -z "${PUBKEY_B64:-}" ]; then
   echo "nothing to sample"
   exit 0
 fi

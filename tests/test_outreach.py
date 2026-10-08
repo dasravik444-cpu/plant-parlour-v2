@@ -136,10 +136,10 @@ def mail(frm, to, subject, body, in_reply_to=None, extra=None) -> bytes:
 
 
 # -- fake sheet with a Leads tab ---------------------------------------------------------------
-def lead(n, name, *, email="", phones="", whatsapp="", priority="Medium", category="Cafe", status="New", person=""):
+def lead(n, name, *, email="", phones="", whatsapp="", priority="Medium", category="Cafe", status="New", person="", usp=""):
     return {"Lead ID": f"PP-{n:05d}", "Business Name": name, "Category": category, "Area": "Salt Lake",
             "Phones": phones, "WhatsApp": whatsapp, "Emails": email, "Priority": priority, "Contact Person": person,
-            "Key": f"key{n}", "Status": status}
+            "Key": f"key{n}", "Status": status, "USP": usp}
 
 
 def sheet_with(leads):
@@ -491,3 +491,29 @@ def test_live_mode_refuses_to_start_without_sender_details(tmp_path):
     smtp = SmtpWorld()
     code, s = runner(cfg, OutreachStore(str(tmp_path / "o.sqlite")), client, Clock(ts(2026, 10, 14, 18)), smtp).run()
     assert code == 1 and smtp.sent == [] and "sender" in s["notes"][0]
+
+
+def test_first_email_quotes_the_usp_stays_short_and_usp_leads_go_first(tmp_path):
+    leads = [lead(1, "Plain Cafe", email="hi@plaincafe.in", priority="High"),
+             lead(2, "Peter Cat", email="info@petercat.in", priority="High", category="Restaurant",
+                  usp="Iconic Park Street restaurant famous for its Chelo Kebab since 1975")]
+    sess, client = sheet_with(leads)
+    smtp, clock = SmtpWorld(), Clock(ts(2026, 10, 14, 11))
+    runner(cfg_with(start_per_day=1), OutreachStore(str(tmp_path / "o.sqlite")), client, clock, smtp, live=False).run()
+    preview = tab(sess, "Email Preview")
+    assert [p["Business"] for p in preview] == ["Peter Cat"]                 # the personalised one first
+    body = preview[0]["Body"]
+    assert 'liked this line on your website: "Iconic Park Street restaurant famous for its Chelo Kebab since 1975".' in body
+    assert 50 <= len(body.split()) <= 150 and "http" not in body
+
+
+def test_paused_email_sends_only_a_manual_test_batch(tmp_path):
+    sess, client = sheet_with(LEADS)
+    store = OutreachStore(str(tmp_path / "o.sqlite"))
+    cfg = cfg_with()
+    cfg["outreach"]["email"]["enabled"] = False
+    smtp, clock = SmtpWorld(), Clock(ts(2026, 10, 14, 11))
+    code, s = runner(cfg, store, client, clock, smtp).run()                   # the scheduled run: nothing goes out
+    assert smtp.sent == [] and any("paused" in n for n in s["notes"])
+    code, s = runner(cfg, store, client, clock, smtp, max_emails=1).run()     # the owner's test: exactly one
+    assert len(smtp.sent) == 1 and s["new"] == 1

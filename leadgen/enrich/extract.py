@@ -192,6 +192,7 @@ class PageExtract:
     found: list[Found] = field(default_factory=list)
     internal_links: list[tuple[str, str]] = field(default_factory=list)   # (url, anchor text) candidates for contact pages
     policy_links: list[tuple[str, str]] = field(default_factory=list)     # privacy/terms pages (deep crawl only)
+    claims: list[str] = field(default_factory=list)       # the business's own words about itself (USP source)
     jsonld_names: list[str] = field(default_factory=list)
     redirect_to_social: str = ""
 
@@ -247,6 +248,12 @@ def extract_page(html: str, url: str, region: str = "IN", contact_page: bool = F
     tag = soup.find("meta", attrs={"property": "og:site_name"})
     if tag and tag.get("content"):
         pe.site_name = tag["content"].strip()[:120]
+    # What the business says about itself: title, description, main headings (for the USP line).
+    pe.claims += [x for x in (pe.title, pe.description) if x]
+    for h in soup.find_all(["h1", "h2"], limit=8):
+        t = re.sub(r"\s+", " ", h.get_text(" ", strip=True))
+        if 15 <= len(t) <= 200:
+            pe.claims.append(t)
 
     # --- JSON-LD (structured data the site publishes about itself) ----------
     for script in soup.find_all("script", attrs={"type": re.compile(r"ld\+json", re.I)}):
@@ -260,6 +267,9 @@ def extract_page(html: str, url: str, region: str = "IN", contact_page: bool = F
         for n in nodes:
             if isinstance(n.get("name"), str):
                 pe.jsonld_names.append(n["name"].strip()[:120])
+            for k in ("slogan", "description"):
+                if isinstance(n.get(k), str) and 15 <= len(n[k]) <= 400:
+                    pe.claims.append(n[k].strip())
             for tel in _as_list(n.get("telephone")):
                 if isinstance(tel, str):
                     p = parse_phone(tel, region)

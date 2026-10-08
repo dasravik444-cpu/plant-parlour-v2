@@ -50,6 +50,7 @@ def lead_row(db: DB, p, cfg) -> dict:
         sources.setdefault(kind, set()).update(SOURCE_NAMES.get(s, s) for s in srcs)
     kinds = {k for k, v in good.items() if v}
     signals = sorted({c["value"] for c in contacts if c["kind"] == "signal"})
+    usp = next((c["value"] for c in contacts if c["kind"] == "usp"), "")
     website = p["website"] or ""
     if website and is_aggregator(website):
         website = ""
@@ -76,6 +77,7 @@ def lead_row(db: DB, p, cfg) -> dict:
         "Rating": rating,
         "Priority": lead_priority(kinds, p["rating"], p["reviews"], advertises=bool(signals)),
         "Signals": "\n".join(signals),
+        "USP": usp,
         "Description": p["description"] or "",
         "Contact Sources": src_text,
         "Other Contacts (unverified)": "\n".join(weak[:6]),

@@ -184,9 +184,19 @@ def cmd_outreach(cfg, args) -> int:
     store = OutreachStore(args.db)
     try:
         live = None if args.mode is None else args.mode == "live"
-        code, summary = Outreach(cfg, store, live=live, max_emails=args.max_emails).run()
+        engine = Outreach(cfg, store, live=live, max_emails=args.max_emails)
+        code, summary = engine.run()
     finally:
         store.close()
+    sent_csv = os.environ.get("OUTREACH_SENT_CSV", "")
+    if sent_csv and engine.sent_log:
+        # The e-mails this run sent, for the maintainer's encrypted check (never printed in the public log).
+        import csv
+
+        with open(sent_csv, "w", newline="", encoding="utf-8") as fh:
+            w = csv.writer(fh)
+            w.writerow(["Lead ID", "Business", "To", "Result", "Subject", "Body"])
+            w.writerows(engine.sent_log)
     text = _mask_contacts(json.dumps(summary, indent=1, ensure_ascii=False))
     print(text)
     path = os.environ.get("GITHUB_STEP_SUMMARY")
