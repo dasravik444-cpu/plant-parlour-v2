@@ -138,6 +138,9 @@ done twice.
 * Live diagnostics any time: Actions > **Live source probe** > Run workflow (checks Google Maps,
   websites, search engines, Instagram and OpenStreetMap from GitHub's servers).
 * Actions > **State persistence self-test** proves the encrypted save/restore chain works.
+* Actions > **E-mail hunt** > Run workflow (defaults) shows the e-mail coverage: how many leads have an e-mail,
+  per category, and why the others have none. With *Leads to hunt* > 0 and *Save* ticked it also runs the deeper
+  e-mail search for leads still without one (every daily run already does this for 15 minutes).
 * Actions > **Tests** runs automatically on every change (offline test suite).
 * GitHub pauses schedules in public repositories after 60 days without a commit.
   The workflow refreshes itself every morning to prevent that (job *keepalive*).

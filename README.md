@@ -81,6 +81,12 @@ Live trials (6 Oct 2026, from GitHub Actions, central Kolkata):
 Google Maps returns far more businesses per search than the daily target, so
 the target is normally exceeded while each part is covered.
 
+**E-mails.** Leads still without an e-mail get a second, deeper look every day (the *e-mail hunt*): other
+listings of the same business with the same phone number, the business's own website again (privacy/terms
+pages, sitemap, http/https and www variants), and - for businesses whose listing shows no website - the obvious
+web addresses for their name, accepted only when the site shows the business's own phone number. Nothing is
+guessed into the *Emails* column; see [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md#e-mail-hunt-leads-still-without-an-e-mail).
+
 **Accuracy review.** 150 real rows across all categories were checked by hand. Every
 wrong attribution found (a food blogger's page shown as a restaurant's Facebook,
 a similarly named cafe's Instagram, a personal profile, a gambling site on an
