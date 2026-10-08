@@ -232,7 +232,11 @@ class Outreach:
                                                          last_uid=self.store.get("imap_last_uid"),
                                                          uidvalidity=self.store.get("imap_uidvalidity"))
         except Exception as exc:  # noqa: BLE001 - an inbox problem must not stop sending or the sheet update
-            self.notes.append(f"could not read the Gmail inbox: {type(exc).__name__}: {exc}"[:300])
+            msg = f"could not read the Gmail inbox: {type(exc).__name__}: {exc}"
+            if "application-specific password" in msg.lower():
+                msg = ("Gmail refused the login: OUTREACH_GMAIL_APP_PASSWORD must be a Gmail App Password "
+                       "(myaccount.google.com/apppasswords, 2-Step Verification on), not the account's normal password")
+            self.notes.append(msg[:300])
             if self.live:
                 self.code = max(self.code, 2)
             return
@@ -347,6 +351,12 @@ class Outreach:
             return
         if remaining <= 0:
             return
+        problem = self.sender.check()
+        if problem:
+            # Nothing is attempted (no lead is touched) until Gmail accepts the login.
+            self.notes.append(f"no e-mails sent: {problem}")
+            self.code = max(self.code, 2)
+            return
         runs_left = max(1, math.ceil((end - local).total_seconds() / 3600))
         n = min(e["max_per_run"], math.ceil(remaining / runs_left))
         if self.max_emails is not None:
@@ -389,9 +399,15 @@ class Outreach:
         used_emails = {r["email"] for r in self.store.q("SELECT email FROM threads")}
         used_leads = {r["lead_key"] for r in self.store.q("SELECT DISTINCT lead_key FROM threads")}
         used_domains = {r["domain"] for r in self.store.q("SELECT DISTINCT domain FROM threads WHERE domain IS NOT NULL")}
+        used_business: set[str] = set()
+        for k in used_leads:
+            if k in self.by_key:
+                used_business |= self._business_keys(self.by_key[k])
         for lead in sorted(self.leads, key=self._score):
             if len(out) >= n:
                 break
+            if self._business_keys(lead) & used_business:
+                continue            # the same business listed twice: one conversation only
             # Only leads never contacted: the sheet's Status is the durable record, so even if the outreach
             # memory were lost, nobody gets the first e-mail twice.
             if lead.status.strip().lower() not in ("", "new") or lead.key in used_leads:
@@ -408,10 +424,29 @@ class Outreach:
                 out.append({"kind": "new", "step": 1, "email": addr, "lead": lead, "thread": None})
                 used_emails.add(addr)
                 used_leads.add(lead.key)
+                used_business |= self._business_keys(lead)
                 if dom not in FREE_MAIL:
                     used_domains.add(dom)
                 break
         return out
+
+    @staticmethod
+    def _business_keys(lead: Lead) -> set[str]:
+        """What identifies the business behind a lead: its website's domain and its name without place words -
+        two listings of one hotel ("Mayur Residency" / "Mayur Residency Kolkata") must not get two e-mails."""
+        from ..enrich.emails import platform_of, site_label
+        from ..enrich.extract import host_of, registrable
+        from ..quality import core_name, tokens
+
+        keys = set()
+        host = host_of(lead.website) if lead.website and "://" in lead.website else host_of("http://" + lead.website) if lead.website else ""
+        if host:
+            keys.add("site:" + (host if platform_of(host) else registrable(host)))
+        place_words = {"kolkata", "calcutta", "howrah", "india", "branch", "outlet"}
+        name = "".join(t for t in tokens(core_name(lead.business)) if t not in place_words)
+        if len(name) >= 5:
+            keys.add("name:" + name)
+        return keys
 
     def _stub(self, t) -> Lead:
         return Lead(key=t["lead_key"], lead_id=t["lead_id"] or "", business=t["business"] or "")
@@ -473,6 +508,10 @@ class Outreach:
                     break
                 elif res.status == "auth":
                     self.notes.append("Gmail refused the login - check OUTREACH_GMAIL_APP_PASSWORD (it changes when the Google password changes)")
+                    self.code = max(self.code, 2)
+                    break
+                elif res.status == "network":
+                    self.notes.append(f"could not reach Gmail's sending server ({res.detail[:150]}) - trying again next run")
                     self.code = max(self.code, 2)
                     break
                 else:

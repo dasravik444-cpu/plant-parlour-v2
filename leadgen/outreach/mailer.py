@@ -73,7 +73,13 @@ class GmailSender:
         s.ehlo()
         s.starttls(context=ssl.create_default_context())
         s.ehlo()
-        s.login(self.address, self.password)
+        try:
+            s.login(self.address, self.password)
+        except smtplib.SMTPServerDisconnected as exc:
+            # Gmail answers a refused password (e.g. the normal password instead of an App Password) and then
+            # hangs up; smtplib's next login method then sees the closed connection. It is a login refusal.
+            raise smtplib.SMTPAuthenticationError(534, b"Gmail closed the connection during login (password refused; "
+                                                       b"Application-specific password required)") from exc
         self.smtp = s
 
     def check(self) -> str:
@@ -82,9 +88,13 @@ class GmailSender:
             self._connect()
             return ""
         except smtplib.SMTPAuthenticationError as exc:
-            return f"Gmail refused the login ({exc.smtp_code}): check the address and the app password"
+            said = _txt(exc.smtp_error).replace("\n", " ")[:160]
+            hint = (" - the secret must be a Gmail App Password (16 letters from myaccount.google.com/apppasswords, "
+                    "2-Step Verification on), not the account's normal password") if "application-specific" in said.lower() \
+                else " - check the address and the app password"
+            return f"Gmail refused the login ({exc.smtp_code}: {said}){hint}"
         except (smtplib.SMTPException, OSError, socket.timeout) as exc:
-            return f"could not reach Gmail: {type(exc).__name__}: {exc}"
+            return f"could not reach Gmail's sending server (smtp.gmail.com:{SMTP_PORT}): {type(exc).__name__}: {exc}"
         finally:
             self.close()
 

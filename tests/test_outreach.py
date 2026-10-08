@@ -14,7 +14,7 @@ from helpers import FakeSheetsSession
 from leadgen.outreach.classify import classify_reply, new_text
 from leadgen.outreach.engine import Outreach
 from leadgen.outreach.inbox import GmailInbox
-from leadgen.outreach.mailer import GmailSender, classify_smtp_error
+from leadgen.outreach.mailer import GmailSender, build_message, classify_smtp_error
 from leadgen.outreach.store import OutreachStore
 from leadgen.sheets import LEAD_COLUMNS, SheetsClient
 
@@ -517,3 +517,50 @@ def test_paused_email_sends_only_a_manual_test_batch(tmp_path):
     assert smtp.sent == [] and any("paused" in n for n in s["notes"])
     code, s = runner(cfg, store, client, clock, smtp, max_emails=1).run()     # the owner's test: exactly one
     assert len(smtp.sent) == 1 and s["new"] == 1
+
+
+def test_one_business_listed_twice_gets_one_email(tmp_path):
+    leads = [lead(1, "Mayur Residency", email="res@itsindia.in", priority="High"),
+             lead(2, "Mayur Residency Kolkata", email="kolkata@mayurhotels.in", priority="High"),
+             lead(3, "Other Hotel", email="hi@otherhotel.in", priority="High")]
+    leads[0]["Website"] = leads[1]["Website"] = "https://mayurhotels.in/"
+    sess, client = sheet_with(leads)
+    smtp, clock = SmtpWorld(), Clock(ts(2026, 10, 14, 11))
+    runner(cfg_with(start_per_day=5), OutreachStore(str(tmp_path / "o.sqlite")), client, clock, smtp, max_emails=3).run()
+    assert sorted(m["To"] for m in smtp.sent) == ["hi@otherhotel.in", "res@itsindia.in"]
+
+
+def test_wrong_gmail_password_touches_no_lead(tmp_path):
+    sess, client = sheet_with(LEADS)
+    smtp, clock = SmtpWorld(auth_ok=False), Clock(ts(2026, 10, 14, 11))
+    code, s = runner(cfg_with(), OutreachStore(str(tmp_path / "o.sqlite")), client, clock, smtp, max_emails=2).run()
+    assert code == 2 and smtp.sent == [] and any("Gmail refused the login" in n for n in s["notes"])
+    assert all(status_of(sess, f"key{i}") in ("New", "Customer") for i in range(1, 7))
+
+
+def test_unreachable_gmail_stops_at_the_first_failure(tmp_path):
+    sess, client = sheet_with(LEADS)
+    tries = []
+
+    def fail(msg):
+        tries.append(msg["To"])
+        return OSError("timed out")
+    smtp, clock = SmtpWorld(fail=fail), Clock(ts(2026, 10, 14, 11))
+    code, s = runner(cfg_with(), OutreachStore(str(tmp_path / "o.sqlite")), client, clock, smtp, max_emails=3).run()
+    assert code == 2 and len(set(tries)) == 1 and any("could not reach Gmail" in n for n in s["notes"])
+
+
+def test_gmail_hanging_up_during_login_is_reported_as_a_password_problem():
+    class HangUp(SmtpWorld):
+        def factory(self, host, port, timeout=None):
+            conn = super().factory(host, port, timeout)
+
+            def login(user, pw):
+                raise smtplib.SMTPServerDisconnected("Connection unexpectedly closed")
+            conn.login = login
+            return conn
+    sender = GmailSender("me@gmail.com", "my normal password", smtp_factory=HangUp().factory)
+    problem = sender.check()
+    assert "Gmail refused the login" in problem and "App Password" in problem
+    res = sender.send(build_message(sender_name="x", sender_addr="me@gmail.com", to="a@b.in", subject="s", body="b"))
+    assert res.status == "auth"
