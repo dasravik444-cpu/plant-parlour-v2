@@ -891,28 +891,37 @@ def import_state(p: dict[str, Path], files: list[Path], key: str, log=print) -> 
     return done
 
 
+def _same_file_key(path: Path) -> tuple:
+    # Inside Ubuntu the one Downloads folder is reachable under several names (separate bind mounts, so
+    # resolve() does not unify them); the device + inode numbers do.
+    st = path.stat()
+    return (st.st_dev, st.st_ino)
+
+
 def download_dirs() -> list[Path]:
     h = Path(os.environ.get("TERMUX_HOME_DIR") or Path.home())
     cands = [h / "storage" / "downloads", Path("/sdcard/Download"), Path("/storage/emulated/0/Download")]
     out, seen = [], set()
     for c in cands:
         try:
-            r = c.resolve()
-            if r.is_dir() and r not in seen:
-                seen.add(r)
-                out.append(c)
+            if not c.is_dir():
+                continue
+            key = _same_file_key(c)
         except OSError:
             continue
+        if key not in seen:
+            seen.add(key)
+            out.append(c)
     return out
 
 
 def find_downloads(pattern: str) -> list[Path]:
-    found: dict[Path, Path] = {}
+    found: dict[tuple, Path] = {}
     for d in download_dirs():
         try:
             for f in d.glob(pattern):
                 if f.is_file():
-                    found.setdefault(f.resolve(), f)
+                    found.setdefault(_same_file_key(f), f)
         except OSError:
             continue
     return sorted(found.values(), key=lambda f: f.stat().st_mtime, reverse=True)
@@ -1069,11 +1078,14 @@ def mask(v: str) -> str:
 
 
 def sheet_id_from(text: str) -> str:
-    text = text.strip()
+    # Copied text can carry invisible characters (zero-width spaces), so look for the ID instead of matching
+    # the whole input.
+    text = re.sub(r"[\u200b-\u200f\u2060\ufeff]", "", text or "").strip()
     m = re.search(r"/spreadsheets/d/([A-Za-z0-9_-]{20,})", text)
     if m:
         return m.group(1)
-    return text if re.fullmatch(r"[A-Za-z0-9_-]{20,}", text) else ""
+    m = re.fullmatch(r"\W*([A-Za-z0-9_-]{25,})\W*", text)
+    return m.group(1) if m else ""
 
 
 def email_ok(text: str) -> bool:

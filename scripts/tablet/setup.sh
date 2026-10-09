@@ -11,7 +11,7 @@ HERE="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")" && pwd)"
 . "$HERE/lib.sh"
 
 STEP=0
-TOTAL=9
+TOTAL=10
 step() { STEP=$((STEP + 1)); printf '\n\033[1;36m[%d/%d] %s\033[0m\n' "$STEP" "$TOTAL" "$*"; }
 retry() {
   # retry <tries> <command...>: network steps get three chances (Wi-Fi hiccups)

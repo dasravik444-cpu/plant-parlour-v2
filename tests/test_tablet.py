@@ -97,6 +97,8 @@ def test_sheet_id_and_app_password_checks():
     url = "https://docs.google.com/spreadsheets/d/1AbCdEfGhIjKlMnOpQrStUvWxYz_0123456789-xyz/edit#gid=0"
     assert tablet.sheet_id_from(url) == "1AbCdEfGhIjKlMnOpQrStUvWxYz_0123456789-xyz"
     assert tablet.sheet_id_from("not a sheet") == ""
+    assert tablet.sheet_id_from("\u200b1h9Wlk0Bo7ZXD2npZXsS8ZoJLq3xfdfa0G7vdeOwzzyo\u200b ") == \
+        "1h9Wlk0Bo7ZXD2npZXsS8ZoJLq3xfdfa0G7vdeOwzzyo"
     assert tablet.app_password_ok("abcd efgh ijkl mnop")
     assert not tablet.app_password_ok("MyGmailPassword123")
 
@@ -469,3 +471,13 @@ def test_guest_commands_use_ubuntus_own_programs(tmp_path):
     setup = (REPO / "scripts" / "tablet" / "setup.sh").read_text()
     assert "pp_guest python3 " not in setup and "/usr/bin/python3 -m venv" in setup
     assert "--only-binary=:all:" in setup
+
+
+def test_downloads_listed_once_even_under_two_names(tmp_path, monkeypatch):
+    real = tmp_path / "Download"
+    real.mkdir()
+    (real / "pp-state.zip").write_bytes(b"x")
+    other = tmp_path / "sdcard-Download"
+    other.symlink_to(real)            # the same folder under another name (on the tablet: separate bind mounts)
+    monkeypatch.setattr(tablet, "download_dirs", lambda: [real, other])
+    assert [f.name for f in tablet.find_downloads("pp-state*.zip")] == ["pp-state.zip"]
