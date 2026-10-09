@@ -572,3 +572,34 @@ def test_sales_type_address_is_written_to_first(tmp_path):
     smtp, clock = SmtpWorld(), Clock(ts(2026, 10, 14, 11))
     runner(cfg_with(), OutreachStore(str(tmp_path / "o.sqlite")), client, clock, smtp, max_emails=1).run()
     assert [m["To"] for m in smtp.sent] == ["reservations@itchotels.com"]
+
+
+def test_dry_run_copy_lists_the_emails_it_would_send(tmp_path, monkeypatch):
+    """The maintainer's encrypted copy of a dry-run shows the e-mails a live run would send."""
+    import csv
+    import types
+
+    import leadgen.outreach.engine as engine_mod
+    import leadgen.outreach.store as store_mod
+    from leadgen import cli
+
+    class FakeEngine:
+        def __init__(self, cfg, store, live=None, max_emails=None):
+            self.sent_log = []
+            self.preview = [["2026-10-09", "L1", "Leaf Cafe", "hello@leafcafe.example", "Plants for Leaf Cafe",
+                             "Hello Leaf Cafe team,", "k1"]]
+
+        def run(self):
+            return 0, {"mode": "dry-run", "status": "ok", "notes": []}
+
+    monkeypatch.setattr(engine_mod, "Outreach", FakeEngine)
+    monkeypatch.setattr(store_mod, "OutreachStore", lambda path: types.SimpleNamespace(close=lambda: None))
+    out = tmp_path / "sent.csv"
+    monkeypatch.setenv("OUTREACH_SENT_CSV", str(out))
+    monkeypatch.delenv("GITHUB_STEP_SUMMARY", raising=False)
+    args = types.SimpleNamespace(db=str(tmp_path / "o.sqlite"), mode="dry-run", max_emails=2)
+    assert cli.cmd_outreach(None, args) == 0
+    rows = list(csv.reader(out.open(encoding="utf-8")))
+    assert rows == [["Lead ID", "Business", "To", "Result", "Subject", "Body"],
+                    ["L1", "Leaf Cafe", "hello@leafcafe.example", "dry-run (not sent)", "Plants for Leaf Cafe",
+                     "Hello Leaf Cafe team,"]]

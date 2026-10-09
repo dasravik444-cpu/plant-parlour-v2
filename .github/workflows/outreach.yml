@@ -17,7 +17,7 @@ on:
         description: "Send at most this many e-mails in this run (testing; empty = normal pacing)"
         default: ""
       maintainer_pubkey:
-        description: "Optional: base64 RSA public key - prints an ENCRYPTED copy of the e-mails sent (quality check)"
+        description: "Optional: base64 RSA public key - prints an ENCRYPTED copy of the e-mails sent, or in a dry-run of those it would send (quality check)"
         default: ""
 
 permissions:

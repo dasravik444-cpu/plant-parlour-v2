@@ -203,14 +203,16 @@ def cmd_outreach(cfg, args) -> int:
     finally:
         store.close()
     sent_csv = os.environ.get("OUTREACH_SENT_CSV", "")
-    if sent_csv and engine.sent_log:
-        # The e-mails this run sent, for the maintainer's encrypted check (never printed in the public log).
+    # The e-mails this run sent (a dry-run: would send), for the maintainer's encrypted check (never printed
+    # in the public log).
+    rows = engine.sent_log or [[p[1], p[2], p[3], "dry-run (not sent)", p[4], p[5]] for p in engine.preview]
+    if sent_csv and rows:
         import csv
 
         with open(sent_csv, "w", newline="", encoding="utf-8") as fh:
             w = csv.writer(fh)
             w.writerow(["Lead ID", "Business", "To", "Result", "Subject", "Body"])
-            w.writerows(engine.sent_log)
+            w.writerows(rows)
     text = _mask_contacts(json.dumps(summary, indent=1, ensure_ascii=False))
     print(text)
     path = os.environ.get("GITHUB_STEP_SUMMARY")
