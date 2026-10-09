@@ -19,13 +19,16 @@ clinics, corporate offices, hotels, coworking spaces), collects their
   or LinkedIn entry was read from a public source and keeps the URL it came
   from (shown in the sheet's *Contact Sources* column). No AI model writes or
   "repairs" contact details.
-* **Fully automatic.** It runs every day on GitHub Actions (free, reliable
-  internet) and can also run on the Android tablet as a backup.
+* **Fully automatic.** It runs every day by itself on the owner's Android tablet
+  (Termux, free) and updates itself every morning - each new version is tested
+  on the tablet first and undone if anything breaks. See [docs/TABLET.md](docs/TABLET.md).
+  (It ran on GitHub Actions until GitHub disabled Actions on the account on
+  9 Oct 2026; GitHub now only keeps the code.)
 * **Hard to break.** Every search and every enrichment step is its own durable
   task. One failure (a blocked site, a timeout, Instagram's login wall, a
   Google Sheets error) is recorded on that task and never stops the rest. A
   crash or a killed process resumes where it stopped. If something important
-  fails, the GitHub run turns red and GitHub emails you.
+  fails twice in a row, the tablet e-mails you.
 
 ## How a day works
 
@@ -62,10 +65,9 @@ flowchart LR
 
 A run continues until **today's new leads reach the daily target** and
 **today's part is finished**, or the time budget runs out. Unfinished work
-carries over automatically. GitHub runs it six times a day (06:07 IST, then every
-3 hours until 21:07 IST - GitHub sometimes delays a scheduled run by hours or drops
-it, so the later slots catch up); the later runs finish the day's part and then work through the
-enrichment queue, and exit quickly when nothing is left. The day's first batch of leads is enriched first, so each day's leads get full contact
+carries over automatically. The tablet runs it at 06:00 IST, with follow-ups at
+11:30, 16:30 and 21:30 that finish the day's part and then work through the enrichment
+queue (a slot missed while the tablet was off runs as soon as it is back). The day's first batch of leads is enriched first, so each day's leads get full contact
 details quickly. The **daily target is automatic** by default: on day 1 the system counts the
 businesses in the whole area and aims for *area total / number of days* each day (about 1,000/day
 for the Kolkata pilot), so the campaign covers the whole area.
@@ -106,18 +108,18 @@ Uncertain finds are not thrown away: they appear in *Other Contacts
 | Instagram shows its login wall | skips Instagram bios for that run; Instagram handles are still collected |
 | Google Sheets fails | keeps the leads in the encrypted campaign memory and writes them next run; the run turns red |
 | A run is cancelled or times out | saves its progress first; the next run continues where it stopped |
-| The GitHub machine dies mid-run (nothing saved) | the next run repeats that run's work from the last saved state; leads already copied to the sheet (20-minute checkpoints) are updated, not duplicated |
-| GitHub skips a scheduled run | the next of the six daily runs (every 3 hours) continues; the calendar never skips territory |
-| The campaign memory is lost | starts over without duplicating sheet rows (rows are matched by Key, Lead IDs are kept) |
-| 60 days without commits | the daily *keepalive* job stops GitHub from pausing the schedule |
+| Android closes Termux or the tablet restarts mid-run | the system starts again by itself (Termux:Boot, a 15-minute watchdog) and the run continues from its last saved step; leads already copied to the sheet are updated, not duplicated |
+| The tablet is off at a scheduled time | the job runs as soon as the tablet is back (once) |
+| A new version breaks something | the morning update runs all the tests on the tablet first and keeps the old version if anything new fails |
+| The campaign memory is lost | starts over without duplicating sheet rows (rows are matched by Key, Lead IDs are kept); nightly backups of the last 7 days are on the tablet |
 
-"Turns red" means the run is marked failed on GitHub, and GitHub emails the
-repository owner.
+"Turns red" means the job is recorded as failed (`pp status`); from the second failure in a row, or when an
+update is undone, the tablet e-mails the owner.
 
 ## Quick start
 
-See **[docs/SETUP.md](docs/SETUP.md)** for step-by-step instructions (GitHub
-secrets, Google Sheet sharing, enabling the daily schedule, tablet setup).
+Running it: **[docs/TABLET.md](docs/TABLET.md)** (the Android tablet, step by step). The Google side
+(service account, sheet sharing) is in **[docs/SETUP.md](docs/SETUP.md)**.
 
 ```bash
 pip install -r requirements.txt -r requirements-extra.txt
@@ -172,10 +174,9 @@ python -m leadgen export-csv --out leads.csv
 leadgen/            the system (planner, runner, providers/, enrich/, outreach/, sheets, report, cli)
 config/             campaign configuration (area, categories, targets) - edit this
 tests/              offline test suite (fake internet + fake Google Sheets)
-.github/workflows/  daily.yml (lead generation), outreach.yml (e-mail + WhatsApp queue), ci.yml (tests),
-                    probe.yml (live diagnostics)
+.github/workflows/  ci.yml (tests on every push); daily.yml, outreach.yml, email-hunt.yml, probe.yml are manual only
 scripts/ci/         encrypted state save/restore for GitHub Actions
-scripts/tablet/     Termux install + daily runner
+scripts/tablet/     the tablet: setup.sh (one-time install), pp.sh (the `pp` command), service.sh, watchdog.sh
 docs/               SETUP, OUTREACH, ARCHITECTURE, AUDIT (what was wrong with the old systems)
 ```
 

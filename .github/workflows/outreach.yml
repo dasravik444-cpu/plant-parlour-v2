@@ -1,13 +1,10 @@
 name: Outreach (e-mail + WhatsApp queue)
 
-# Sends the day's outreach e-mails from a free Gmail account and builds the WhatsApp queue in the Google
-# Sheet, reading the leads from its Leads tab. Runs every hour in Indian business hours, Monday to Saturday,
-# once the repository variable OUTREACH_ENABLED is "true".
-# Nothing is sent until the repository variable OUTREACH_LIVE is "true" (or [outreach].mode = "live"):
-# before that every run is a dry-run that fills the "Email Preview" tab instead. See docs/OUTREACH.md.
+# Manual runs only. The hourly outreach now runs on the owner's Android tablet (docs/TABLET.md): GitHub disabled
+# Actions on the account on 9 Oct 2026. Don't start this by hand while the tablet runs outreach - two outreach
+# memories could e-mail the same lead twice.
+# Nothing is sent unless mode is "live" (or the repository variable OUTREACH_LIVE is "true"); see docs/OUTREACH.md.
 on:
-  schedule:
-    - cron: "41 4-12 * * 1-6"    # 10:11 to 18:11 IST, Monday to Saturday
   workflow_dispatch:
     inputs:
       mode:

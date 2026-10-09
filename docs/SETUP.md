@@ -30,47 +30,33 @@ You may add your own columns to the right of *Status* and edit *Status* freely.
 Don't insert columns in the middle of the Leads tab; the system will refuse to
 write rather than overwrite anything.
 
-## 2. Add the secrets on GitHub
+## 2. Where it runs
 
-Repository **dasravik444-cpu/plant-parlour-v2** > **Settings** > **Secrets and variables** > **Actions** >
-**New repository secret**:
+The system runs on the owner's **Android tablet** (since 9 October 2026; GitHub disabled Actions on the
+account). The tablet setup asks for the sheet address and the key file from step 0/1 and keeps them on the
+tablet only: **[TABLET.md](TABLET.md)**.
 
-| Name | Value |
-|---|---|
-| `GOOGLE_SERVICE_ACCOUNT_JSON` | the **entire content** of the new JSON key file (open it in a text editor, copy everything) |
-| `PP_SHEET_ID` | the sheet ID from step 1 |
-| `PP_STATE_KEY` | a long random password, e.g. six random words. **Save a copy in your password manager.** It encrypts the campaign memory; if it is lost, the campaign memory starts fresh (the leads already in the sheet are safe and are not duplicated). |
-| `GOOGLE_PLACES_API_KEY` *(optional, standard mode)* | official Google Places API key, used only in standard mode if Google Maps blocks the free method. |
-| `FOURSQUARE_API_KEY` *(optional)* | free Foursquare Places API key (<https://foursquare.com/developers>). When set, fills missing website/phone/social for leads. Optional - it adds little over the open data. |
+GitHub keeps the code. Its workflows (daily lead generation, outreach, e-mail hunt, probe) are manual-only now and
+are not needed for daily work; the GitHub secrets (`GOOGLE_SERVICE_ACCOUNT_JSON`, `PP_SHEET_ID`, `PP_STATE_KEY`, ...)
+are only used if one of them is started by hand. Don't start them while the tablet runs the campaign.
 
-## 3. Turn on the daily schedule
-
-Same page, tab **Variables** > **New repository variable**: name `PP_ENABLED`, value `true`.
-
-From now on GitHub runs the system **every day at 06:07 IST**, with follow-up
-runs every 3 hours (09:07, 12:07, 15:07, 18:07, 21:07 IST) that finish the day's
-part and the enrichment work (websites, contact pages) and stop within a minute
-or two when nothing is left. When GitHub is busy it delays scheduled runs,
-sometimes by hours, and occasionally drops one; whichever slot arrives first does
-the day's work. If a run fails, GitHub emails the repository owner.
-
-## 4. First run (recommended now)
-
-**Actions** tab > **Daily lead generation** > **Run workflow** > keep the defaults > **Run**.
-It takes up to about 80 minutes. Then open your sheet:
+## 3. What you see in the sheet
 
 * **Leads**: one row per business with phones, WhatsApp, emails, Instagram,
   Facebook, LinkedIn, contact person (when the business's website names its
-  owner/founder), website, Google Maps link, priority and *Contact Sources*
+  owner/founder), website, Google Maps link, priority, USP and *Contact Sources*
   (where each detail was found).
 * **Plan**: the 30 parts, their dates, status and leads found.
 * **Daily Report**: one line per run (searches, new leads, contact coverage, warnings).
 
-The run's own page (Actions > the run > *Summary*) shows the same daily report.
+## 4. Running something now
+
+On the tablet: `pp run daily` (today's lead generation), `pp run outreach`, `pp status`. See [TABLET.md](TABLET.md).
 
 ## 5. Changing the campaign
 
-Edit `config/plant-parlour.toml` (on GitHub: open the file > pencil icon):
+Edit `config/plant-parlour.toml` on GitHub (open the file > pencil icon > Commit). The tablet takes the change
+at its next morning update, or at once with `pp update`:
 
 * `daily_target` (`"auto"` by default = area total / days, about 1,000/day for Kolkata;
   or a fixed number like 150), `days`, `radius_km`, `center`, categories and their
@@ -79,8 +65,8 @@ Edit `config/plant-parlour.toml` (on GitHub: open the file > pencil icon):
   published e-mail, the system adds `info@`/`contact@` as **unverified** candidates
   (only when the domain can receive mail). They appear in *Other Contacts (unverified)*,
   never in the *Emails* column - verify before using them. Set to `false` to switch off.
-* Changing the **area or number of days** needs a re-plan: run the workflow
-  manually with **replan = true**. Leads already found are kept. Adding or
+* Changing the **area or number of days** needs a re-plan: after the tablet has the new config (`pp update`),
+  run `pp replan` on the tablet. Leads already found are kept. Adding or
   removing **categories** or search words does not: the next run adds the new
   searches to every part (including finished ones) and drops removed ones.
 * `[compliance] mode`: `"open-data"` (default) uses only openly licensed data
@@ -101,66 +87,34 @@ Edit `config/plant-parlour.toml` (on GitHub: open the file > pencil icon):
 
 ## 6. Outreach (e-mail + WhatsApp)
 
-Contacting the leads automatically is a separate workflow with its own one-time setup (a Gmail app
-password and two GitHub variables). It starts in dry-run so you can read every e-mail first.
+Contacting the leads automatically has its own one-time setup (a Gmail app password, asked by the tablet
+setup). Automatic e-mails stay paused until you have read the test e-mails.
 See **[OUTREACH.md](OUTREACH.md)**.
 
-## 7. The tablet (optional backup)
+## 7. The tablet (where the system runs now)
 
-The tablet can run the same system when GitHub is unavailable, or as your main
-runner if you prefer. Use Ubuntu inside Termux (proot-distro) so the `duckdb`
-package installs; it reads the Overture Maps open data.
-
-In Termux (or Ubuntu inside Termux):
-
-```bash
-pkg install git          # (or: apt install git)
-git clone https://github.com/dasravik444-cpu/plant-parlour-v2
-cd plant-parlour-v2
-bash scripts/tablet/install.sh
-nano ~/.plant-parlour/secrets.env      # fill PP_SHEET_ID and GOOGLE_SERVICE_ACCOUNT_FILE
-bash scripts/tablet/run_daily.sh --budget-minutes 10 --max-searches 5   # small test
-```
-
-Then schedule it with cron as shown at the end of the installer. It runs hourly
-and stops within seconds once the day's work is done. Keep Termux awake
-(`termux-wake-lock`, disable battery optimisation for Termux).
-
-**Run it in one place at a time.** The tablet keeps its own campaign memory.
-If both run, the sheet still never gets duplicate rows, but some searches are
-done twice.
+Since 9 October 2026 the system runs on the owner's Android tablet, not on GitHub Actions (GitHub disabled
+Actions on the account, and its free runners are meant for building and testing code). Step-by-step setup,
+the `pp` command, updates and troubleshooting: **[TABLET.md](TABLET.md)**. GitHub keeps the code and runs the
+tests on every push; its workflows are manual-only now.
 
 ## 8. Keeping an eye on it
 
-* Daily: glance at the **Daily Report** tab, or the email from GitHub if a run failed.
-* `Health` column: `gmaps:ok` means Google Maps answered normally; `paused` means
-  it was temporarily blocked and the run used fallbacks or deferred the work.
-* Live diagnostics any time: Actions > **Live source probe** > Run workflow (checks Google Maps,
-  websites, search engines, Instagram and OpenStreetMap from GitHub's servers).
-* Actions > **State persistence self-test** proves the encrypted save/restore chain works.
-* Actions > **E-mail hunt** > Run workflow (defaults) shows the e-mail coverage: how many leads have an e-mail,
-  per category, and why the others have none. With *Leads to hunt* > 0 and *Save* ticked it also runs the deeper
-  e-mail search for leads still without one (every daily run already does this for 15 minutes).
-* Actions > **Tests** runs automatically on every change (offline test suite).
-* GitHub pauses schedules in public repositories after 60 days without a commit.
-  The workflow refreshes itself every morning to prevent that (job *keepalive*).
-  If runs ever stop anyway, open Actions > **Daily lead generation** and click
-  **Enable workflow**.
-* If the campaign memory can't be restored (for example after `PP_STATE_KEY`
-  was changed), the run stops with a red cross and the saved memory is left
-  untouched. Put the old key back, or delete the `pp-state` artifacts to start fresh.
+* Daily: glance at the **Daily Report** tab. The tablet e-mails you when a job has a problem twice in a row
+  or an update was undone; `pp status` on the tablet shows every job's last run and the next one.
+* `Health` column: `ok` means a source answered normally; `paused` means it was temporarily blocked and the
+  run used fallbacks or deferred the work.
+* GitHub runs the **Tests** on every change to the code (when Actions works on the account); the tablet runs
+  the same tests before it accepts any update.
 
 ## About the repository being public
 
-This repository is public, which gives unlimited free GitHub Actions minutes.
-The campaign memory is stored **encrypted** (with `PP_STATE_KEY`), and the
-logs never print full phone numbers or emails. If you make the repository
-private, everything still works, but the free plan then allows 2,000 minutes a
-month, so lower `time_budget_minutes` to about 55.
+The repository is public, so it never holds secrets or lead data: the passwords, the Google key and the
+campaign memory live on the tablet only (in Termux's private storage), and the logs never print full phone
+numbers or e-mails.
 
 ## Branches
 
-The work lives on branch `ccr-3354cfa7-vsl4cn`, which GitHub made the default
-branch because it was the first one pushed. Schedules run from the default
-branch. If you later merge it into `main`, set `main` as the default branch
-under Settings > General.
+The work lives on branch `ccr-3354cfa7-vsl4cn`, the repository's default branch. The tablet always follows
+the default branch: if you later merge into `main` and make `main` the default (Settings > General), the
+tablet switches to it at its next update.

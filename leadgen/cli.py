@@ -13,6 +13,7 @@ Commands
   email-audit  e-mail coverage of the leads and where the gaps are (aggregate numbers only)
   email-hunt   deeper e-mail search for leads that still have none (own website again, found websites)
   usp-refresh  read the homepage of leads crawled before USP lines existed, for their USP line
+  tablet       run the system on the Android tablet: scheduler, self-updates, setup (see leadgen/tablet.py)
 """
 from __future__ import annotations
 
@@ -94,6 +95,12 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def main(argv=None) -> int:
+    argv = sys.argv[1:] if argv is None else list(argv)
+    if argv and argv[0] == "tablet":
+        # Running on the Android tablet (scheduler, updates, setup) - see leadgen/tablet.py.
+        from .tablet import main as tablet_main
+
+        return tablet_main(argv[1:])
     args = build_parser().parse_args(argv)
     if args.cmd == "probe":
         from .probe import main as probe_main

@@ -1,17 +1,11 @@
 name: Daily lead generation
 
-# Runs every day by itself once the repository variable PP_ENABLED is "true"
-# (Settings > Secrets and variables > Actions > Variables). The follow-up runs
-# continue unfinished work (searches of the day's part, then the enrichment
-# queue) and end within a minute or two when nothing is left.
-# GitHub delays scheduled runs when it is busy - sometimes by hours (the very
-# first 06:07 run started at 11:52) - and can drop them, so there are six slots
-# a day: whichever arrives first does the day's work, the rest exit in a minute.
+# Manual runs only. The daily schedule now runs on the owner's Android tablet (docs/TABLET.md, scripts/tablet/,
+# leadgen/tablet.py): GitHub disabled Actions on the account on 9 Oct 2026, and GitHub's free runners are meant for
+# building and testing code, not for running the business's daily jobs. Don't start this by hand while the tablet
+# runs the campaign: both would work on the same leads with different memories.
 # Manual runs: Actions tab > Daily lead generation > Run workflow.
 on:
-  schedule:
-    - cron: "37 0 * * *"        # 06:07 IST  main run (+ keepalive)
-    - cron: "37 3-15/3 * * *"   # 09:07, 12:07, 15:07, 18:07, 21:07 IST  follow-ups / catch-up
   workflow_dispatch:
     inputs:
       budget_minutes:
@@ -97,7 +91,7 @@ jobs:
       - name: E-mail hunt (leads still without an e-mail)
         # A deeper look (own website again, websites missing from the listing) for leads found without a usable
         # e-mail. Each lead is looked at once; the follow-up runs work through the rest (not the long 06:07 run).
-        if: (success() || failure()) && env.PERSIST == 'true' && steps.restore.outcome == 'success' && github.event.schedule != '37 0 * * *'
+        if: (success() || failure()) && env.PERSIST == 'true' && steps.restore.outcome == 'success'
         continue-on-error: true
         run: |
           args=(email-hunt --limit 600 --budget-minutes 15)
@@ -105,7 +99,7 @@ jobs:
           python -m leadgen "${args[@]}"
       - name: USP lines for older leads
         # Homepage of leads read before USP lines existed (leads with an e-mail first), once each.
-        if: (success() || failure()) && env.PERSIST == 'true' && steps.restore.outcome == 'success' && github.event.schedule != '37 0 * * *'
+        if: (success() || failure()) && env.PERSIST == 'true' && steps.restore.outcome == 'success'
         continue-on-error: true
         run: |
           args=(usp-refresh --limit 400 --budget-minutes 10)
@@ -128,21 +122,3 @@ jobs:
           path: state-out/pp-state.enc
           retention-days: 90
           if-no-files-found: ignore
-
-  keepalive:
-    # GitHub pauses schedules in public repositories after 60 days without a
-    # commit. Re-enabling the workflow through the API once a day prevents
-    # that (the same method as the keepalive-workflow action).
-    if: github.event_name == 'schedule' && github.event.schedule == '37 0 * * *' && vars.PP_ENABLED == 'true'
-    runs-on: ubuntu-latest
-    timeout-minutes: 5
-    permissions:
-      actions: write
-    steps:
-      - name: Keep the daily schedule active
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          gh api -X PUT "repos/${{ github.repository }}/actions/workflows/daily.yml/enable" \
-            && echo "schedule kept active" \
-            || echo "::warning::Could not refresh the schedule; if runs stop after 60 days, re-enable the workflow in the Actions tab."

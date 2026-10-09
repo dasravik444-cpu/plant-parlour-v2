@@ -182,7 +182,9 @@ Measured 2026-10-06 for 100 km around Kolkata: 209,282 places; 152,758 with a ph
 ## State
 
 `state/leadgen.sqlite`: `parts`, `cells`, `tasks`, `places`, `contacts`, `runs`,
-`budget`, `events`, `meta`. On GitHub Actions it is restored before and saved
+`budget`, `events`, `meta`. On the tablet it lives in `~/.plant-parlour/state/` (Termux's private storage,
+with a nightly copy kept for 7 days); `python -m leadgen tablet import` loads the encrypted copy GitHub saved
+(same AES format as below). Until 9 Oct 2026, on GitHub Actions, it was restored before and saved
 after each run as an AES-256 encrypted artifact (`scripts/ci/state.sh`, 90-day
 retention, refreshed daily). The restore reads every artifact page and takes
 the newest one of the branch; if listing, download, decryption or the integrity
@@ -214,3 +216,20 @@ with an older column layout is upgraded in place (columns inserted, data kept).
 * Overpass: 1 of 3 public mirrors answered (slowly).
 * Google Sheets: tab creation, RAW writes (no formula injection), in-place
   updates, Status preservation and cleanup verified on temporary tabs.
+
+## Running on the tablet (leadgen/tablet.py, scripts/tablet/)
+
+Termux runs a small supervisor (`service.sh`) that holds Android's wake lock and keeps the scheduler
+(`python -m leadgen tablet serve`) running inside Ubuntu 24.04 (proot-distro container `pp-ubuntu`, which sees the
+Termux home as `/root`). The scheduler runs the GitHub workflows' steps at fixed India times, one job at a time
+(a file lock also stops a job started by hand from overlapping one that is running): the daily run and its
+follow-ups (`run`, `email-hunt`, `usp-refresh`), hourly `outreach` (Mon-Sat), a nightly backup and the morning
+update. A slot missed while the tablet was off runs once when it is back. Termux:Boot starts it after a reboot and
+an Android job (Termux:API) checks every 15 minutes that it is running; `pp stop` is respected by both.
+
+Updates: `git fetch` of the repository's default branch, then `checkout`, `pip install` when the requirements
+changed, and three checks - the code compiles, the config loads, and the whole test suite shows no failure that
+was not already failing on this tablet (recorded at setup). Otherwise the previous version is checked out again,
+the failed version is remembered and never retried, and the owner gets an e-mail. Files changed on the tablet are
+never overwritten (`--discard-local` keeps them as a patch). The owner's settings, key and memory sit outside the
+code folder.

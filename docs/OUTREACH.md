@@ -15,7 +15,8 @@ The outreach system reads the **Leads** tab of your Google Sheet and contacts th
   lead's next mobile number (if it has one) is tried the next day. Leads who answer "yes" by e-mail are put
   at the top of the queue: they asked for it.
 
-It runs on GitHub every hour from 10:11 to 18:11 IST, Monday to Saturday (workflow **Outreach**).
+It runs on the tablet every hour from 10:11 to 18:11 IST, Monday to Saturday (see [TABLET.md](TABLET.md)).
+`pp off outreach` pauses it, `pp on outreach` resumes it.
 
 ## Why it works this way
 
@@ -52,26 +53,26 @@ the tool. What gets a number restricted is people blocking or reporting it, so t
 2. **App password:** in that account turn on 2-Step Verification, then open
    <https://myaccount.google.com/apppasswords>, create one named "Outreach" and copy the 16 letters.
    (If you ever change the account's password, create a new app password.)
-3. **GitHub secrets** (Settings > Secrets and variables > Actions > New repository secret):
+3. **On the tablet** the setup asks for these (change them any time with `pp settings`); they stay in
+   `~/.plant-parlour/settings.env` on the tablet, never in the code:
 
-   | Name | Value |
+   | Setting | Value |
    |---|---|
    | `OUTREACH_GMAIL_ADDRESS` | the outreach Gmail address |
    | `OUTREACH_GMAIL_APP_PASSWORD` | the 16 letters |
    | `OUTREACH_SENDER_PHONE` | your WhatsApp Business number, e.g. `+91 98XXX XXXXX` (shown under every e-mail) |
    | `OUTREACH_NOTIFY_EMAIL` *(optional)* | where reply alerts go, e.g. your main Gmail. Without it they go to the outreach Gmail |
 
-   Secrets stay hidden; the repository itself is public, so don't put your number or e-mail in its files.
+   The repository is public, so don't put your number or e-mail in its files.
 4. **Your name:** `config/plant-parlour.toml`, section `[outreach.sender]`: check `name` (shown as the sender).
-5. **Switch on the dry-run:** Settings > Secrets and variables > Actions > *Variables*: add
-   `OUTREACH_ENABLED` = `true`. Every hour the system now fills **Email Preview** with the exact e-mails it
+5. **Dry-run first:** `pp off live` makes every hourly run fill **Email Preview** with the exact e-mails it
    would send (nothing is sent). Read a few. To change the wording, edit `[outreach.email]` (see below).
-6. **Go live:** add the variable `OUTREACH_LIVE` = `true`. Automatic sending also needs
-   `[outreach.email] enabled = true` in `config/plant-parlour.toml` (it was left `false` after the first test
-   e-mails, until you give the go-ahead). Sending starts at the next hourly run.
-   To stop at any time, set `OUTREACH_LIVE` to `false` (or `OUTREACH_ENABLED` to `false` to stop everything).
-   **Test e-mails:** Actions > *Outreach* > Run workflow with *mode* `live` and *max_emails* `2` sends exactly two
-   e-mails to the best two leads, even while automatic sending is paused.
+6. **Go live:** `pp on live` (the tablet's default). Automatic sending also needs
+   `[outreach.email] enabled = true` in `config/plant-parlour.toml` (it is `false` until you give the go-ahead
+   after the test e-mails; edit it on GitHub, the tablet takes it at the next update or with `pp update`).
+   To stop at any time: `pp off live` (back to dry-run) or `pp off outreach` (everything off).
+   **Test e-mails:** `pp test-email` shows the next two e-mails exactly and sends them only after your yes,
+   even while automatic sending is paused (10:00-18:30, Monday to Saturday).
 7. **WhatsApp Business on the new number:** install *WhatsApp Business* (not normal WhatsApp), and fill in the
    business profile (name Plant Parlour, logo, description, address, hours, website). Add your price list
    to the *Catalog*, create a quick reply `/price` with the price-list message, and turn on the *greeting*
@@ -126,14 +127,14 @@ The number of WhatsApp messages a day is set in `[outreach.whatsapp]`: `start_pe
 
 | If | The system |
 |---|---|
-| Gmail says "daily limit" or blocks a message | stops sending until tomorrow and turns the run red (GitHub e-mails you) |
-| 3 addresses bounce in a day, or 5% in a week | pauses sending for 1-2 days and turns the run red |
-| The Gmail login fails | sends nothing, turns the run red |
+| Gmail says "daily limit" or blocks a message | stops sending until tomorrow and records a problem (`pp status`; the tablet e-mails you from the 2nd time) |
+| 3 addresses bounce in a day, or 5% in a week | pauses sending for 1-2 days and records a problem |
+| The Gmail login fails | sends nothing, records a problem |
 | One lead's address is bad or odd | skips that lead, carries on |
 | A lead replies "no" / "stop" / "not interested" | removes e-mail and phone numbers for good |
 | A number is not on WhatsApp | you mark it once; it is never queued again, and the lead's next mobile number is tried |
 | WhatsApp shows a warning or restricts the number | lower `max_per_day` in `[outreach.whatsapp]` to 20 and send only to numbers published as WhatsApp (`include_mobiles = false`) for a while |
-| GitHub delays or skips a run | the next hourly run continues; nothing is sent twice |
+| The tablet is off or Termux was closed | the run happens when it is back; nothing is sent twice |
 | The outreach memory is lost | leads whose Status says *Emailed* are never e-mailed again; the WhatsApp queue rebuilds from its tab |
 
 ## Rules followed
