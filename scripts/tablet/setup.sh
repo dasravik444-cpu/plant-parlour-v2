@@ -100,27 +100,35 @@ fi
 
 # ---------------------------------------------------------------------------------------------------------------
 step "Python and git inside Ubuntu (about 60 MB, once)"
-if pp_guest bash -c 'command -v python3 >/dev/null && command -v git >/dev/null && python3 -c "import venv, ensurepip" 2>/dev/null' >/dev/null 2>&1; then
+# Absolute paths: Ubuntu's own Python and git, never Termux's (see PP_GUEST_PATH in lib.sh).
+if pp_guest /bin/sh -c 'test -x /usr/bin/python3 && test -x /usr/bin/git && /usr/bin/python3 -c "import venv, ensurepip"' >/dev/null 2>&1; then
   pp_info "  already installed"
 else
+  pp_info "  Installing (3-10 minutes). Nothing to type - just wait for the next step."
   apt_cmd='export DEBIAN_FRONTEND=noninteractive TZ=Asia/Kolkata
 apt-get -o APT::Sandbox::User=root -q update &&
 apt-get -o APT::Sandbox::User=root -q -y install --no-install-recommends python3 python3-venv git ca-certificates tzdata'
   retry 3 pp_guest bash -c "$apt_cmd" || pp_die "Could not install Python in Ubuntu. Run the setup again."
 fi
 pp_guest git config --global --add safe.directory '*' >/dev/null 2>&1 || true
-pp_guest python3 -c 'import sys; v = sys.version_info; print("  Python %d.%d" % v[:2]); sys.exit(v < (3, 11))' \
+pp_guest /usr/bin/python3 -c 'import sys; v = sys.version_info; print("  Python %d.%d" % v[:2]); sys.exit(v < (3, 11))' \
   || pp_die "Python 3.11 or newer is needed in Ubuntu."
 
 # ---------------------------------------------------------------------------------------------------------------
 step "Python packages (duckdb, Google, ...; about 120 MB the first time)"
 if ! pp_have_python_env || ! pp_guest "$PP_GUEST_PY" -m pip --version >/dev/null 2>&1; then
-  pp_guest python3 -m venv --clear "$PP_GUEST_DATA/venv" || pp_die "Could not create the Python environment."
+  if [ -e "$PP_HOME/venv" ]; then
+    pp_info "  Rebuilding the Python environment with Ubuntu's Python"
+    rm -rf "$PP_HOME/venv"
+  fi
+  pp_guest /usr/bin/python3 -m venv "$PP_GUEST_DATA/venv" || pp_die "Could not create the Python environment."
 fi
+pp_info "  Downloading and installing (5-15 minutes). Nothing to type - just wait for [6/9]."
 retry 2 pp_guest "$PP_GUEST_PY" -m pip install --quiet --disable-pip-version-check --upgrade pip || true
-retry 3 pp_guest "$PP_GUEST_PY" -m pip install --quiet --disable-pip-version-check --prefer-binary \
+# Only ready-made packages (wheels): nothing is compiled on the tablet.
+retry 3 pp_guest "$PP_GUEST_PY" -m pip install --disable-pip-version-check --only-binary=:all: --progress-bar off \
   -r requirements.txt "duckdb>=1.1" "curl_cffi>=0.7" "pytest>=8" \
-  || pp_die "Could not install the Python packages. Check the internet connection and run the setup again."
+  || pp_die "Could not install the Python packages (the reason is in the lines above). Run the setup again; if it stops the same way, send a photo of this screen."
 pp_guest "$PP_GUEST_PY" -c 'import duckdb, curl_cffi, cryptography, google.auth, bs4, phonenumbers; print("  packages OK (duckdb %s)" % duckdb.__version__)' \
   || pp_die "The Python packages did not install correctly. Run the setup again."
 # duckdb's web add-on (it reads the Overture Maps open data); downloaded once and kept.

@@ -649,7 +649,7 @@ def remote_default_branch() -> str:
 
 
 def pip_install(python: str, log) -> bool:
-    cmd = [python, "-m", "pip", "install", "--quiet", "--disable-pip-version-check", "--prefer-binary",
+    cmd = [python, "-m", "pip", "install", "--quiet", "--disable-pip-version-check", "--only-binary=:all:",
            "-r", str(REPO / "requirements.txt"), *EXTRA_PACKAGES]
     r = subprocess.run(cmd, capture_output=True, text=True, timeout=1800)
     if r.returncode != 0:

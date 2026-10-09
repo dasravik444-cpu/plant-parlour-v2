@@ -437,3 +437,35 @@ def test_test_email_shows_first_and_sends_only_in_hours_after_yes(tmp_path, monk
     out = capsys.readouterr().out
     assert runs == [False, False, True] and "To: info@petercat.example" in out and "sent" in out
     assert p  # paths unused by the inner flow
+
+
+@pytest.mark.skipif(shutil.which("bash") is None, reason="bash not installed")
+def test_guest_commands_use_ubuntus_own_programs(tmp_path):
+    """On the tablet Termux had its own (Android) Python 3.14, and proot-distro appends Termux's bin folder to the
+    PATH inside Ubuntu: `python3` found Termux's, the environment was built from it and duckdb could not install.
+    Guest commands must get Ubuntu's PATH only, and an environment not made from /usr/bin is not accepted."""
+    home = tmp_path / "home"
+    (home / ".plant-parlour" / "venv").mkdir(parents=True)
+    stub = tmp_path / "bin"
+    stub.mkdir()
+    (stub / "proot-distro").write_text('#!/bin/sh\nprintf "%s\\n" "$@"\n')
+    (stub / "proot-distro").chmod(0o755)
+    lib = REPO / "scripts" / "tablet" / "lib.sh"
+    env = {"HOME": str(home), "PATH": f"{stub}:/usr/bin:/bin"}
+
+    def sh(script):
+        return subprocess.run(["bash", "-c", f". {lib}; {script}"], capture_output=True, text=True, env=env)
+
+    args = sh("pp_guest python3 -m pip --version").stdout.splitlines()
+    sep = args.index("--")
+    assert args[sep + 1:sep + 3] == ["/usr/bin/env", "PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"]
+    assert "/data/data/com.termux" not in " ".join(args[sep:])
+    assert args[-4:] == ["python3", "-m", "pip", "--version"]
+    cfg = home / ".plant-parlour" / "venv" / "pyvenv.cfg"
+    cfg.write_text("home = /data/data/com.termux/files/usr/bin\nversion = 3.14.0\n")
+    assert sh("pp_have_python_env").returncode == 1
+    cfg.write_text("home = /usr/bin\nversion = 3.12.3\n")
+    assert sh("pp_have_python_env").returncode == 0
+    setup = (REPO / "scripts" / "tablet" / "setup.sh").read_text()
+    assert "pp_guest python3 " not in setup and "/usr/bin/python3 -m venv" in setup
+    assert "--only-binary=:all:" in setup

@@ -24,6 +24,9 @@ case "$PP_HOME" in
   *) echo "The data folder must be inside the Termux home ($PP_HOME)." >&2; exit 1 ;;
 esac
 PP_GUEST_PY="$PP_GUEST_DATA/venv/bin/python"
+# Ubuntu's own PATH. proot-distro also appends Termux's bin folder inside Ubuntu, so on a tablet where Termux has
+# its own Python (an Android build), "python3" could otherwise resolve to Termux's - which cannot install duckdb.
+PP_GUEST_PATH="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
 
 pp_say()  { printf '\033[1;32m%s\033[0m\n' "$*"; }
 pp_info() { printf '%s\n' "$*"; }
@@ -40,7 +43,8 @@ pp_have_container() {
 }
 
 pp_have_python_env() {
-  [ -f "$PP_HOME/venv/pyvenv.cfg" ]
+  # The environment must be made from Ubuntu's Python (/usr/bin), never from Termux's.
+  grep -qE '^home *= */usr/bin/?$' "$PP_HOME/venv/pyvenv.cfg" 2>/dev/null
 }
 
 # Run a command inside Ubuntu, in the code folder, with the arguments passed exactly as given.
@@ -59,7 +63,7 @@ pp_guest() {
     fi
   fi
   proot-distro login "$PP_CONTAINER" --shared-home --work-dir "$PP_GUEST_REPO" "${extra[@]}" -- \
-    env PP_HOME="$PP_GUEST_DATA" PYTHONUTF8=1 "$@"
+    /usr/bin/env PATH="$PP_GUEST_PATH" PP_HOME="$PP_GUEST_DATA" PYTHONUTF8=1 "$@"
 }
 
 # python -m leadgen tablet ...
