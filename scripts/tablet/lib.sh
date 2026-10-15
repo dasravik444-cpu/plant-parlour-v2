@@ -70,3 +70,12 @@ pp_guest() {
 pp_tablet() {
   pp_guest "$PP_GUEST_PY" -m leadgen tablet "$@"
 }
+
+# Opening Termux starts Plant Parlour again if Android had closed it: one line in ~/.bashrc, added once.
+# (Not inside Ubuntu, which shares this home folder: proot-distro sets PD_CONTAINER there.)
+pp_ensure_open_hook() {
+  local rc="$HOME/.bashrc" tag="# plant-parlour: start when Termux opens" wd="$PP_REPO/scripts/tablet/watchdog.sh"
+  grep -qF "$tag" "$rc" 2>/dev/null && return 0
+  # shellcheck disable=SC2016  # ${PD_CONTAINER} is meant to be expanded when Termux opens, not now
+  printf '\n[ -z "${PD_CONTAINER:-}" ] && [ -f %q ] && (bash %q open >/dev/null 2>&1 &) %s\n' "$wd" "$wd" "$tag" >> "$rc"
+}

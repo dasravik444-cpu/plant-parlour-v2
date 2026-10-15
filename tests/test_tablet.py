@@ -481,3 +481,64 @@ def test_downloads_listed_once_even_under_two_names(tmp_path, monkeypatch):
     other.symlink_to(real)            # the same folder under another name (on the tablet: separate bind mounts)
     monkeypatch.setattr(tablet, "download_dirs", lambda: [real, other])
     assert [f.name for f in tablet.find_downloads("pp-state*.zip")] == ["pp-state.zip"]
+
+
+def test_test_emails_can_run_while_lead_generation_is_busy(tmp_path):
+    p = tablet.paths(tmp_path)
+    leads_busy = tablet.JobLock(p, ("leads",))
+    assert leads_busy.acquire(wait=False)
+    t = Tablet(p, python="py", runner=FakeRunner())
+    assert t.run_job(JOBS["followup"], manual=True) == tablet.BUSY       # same lane: refused
+    assert t.run_job(JOBS["outreach"], manual=True) == 0                 # other lane: runs
+    assert not tablet.JobLock(p).acquire(wait=False)                     # an update needs both lanes
+    leads_busy.release()
+    both = tablet.JobLock(p)
+    assert both.acquire(wait=False)
+    both.release()
+
+
+def test_a_stop_from_outside_is_reported_once(tmp_path, monkeypatch):
+    p = tablet.paths(tmp_path)
+    tablet.write_settings(p["settings"], {"LEADGEN_ENABLED": "false", "OUTREACH_ENABLED": "false", "AUTO_UPDATE": "false"})
+    monkeypatch.setattr(tablet, "git_head_short", lambda: "abc1234")
+    alerts = []
+    monkeypatch.setattr(tablet, "send_alert", lambda s, subj, body: alerts.append(body) or True)
+    now = ist(2026, 10, 15, 11, 0).timestamp()
+    killed_at = ist(2026, 10, 15, 0, 40).timestamp()       # Android closed Termux, no clean stop recorded
+    tablet.save_json(p["status"], {"scheduler": {"heartbeat": killed_at},
+                                   "jobs": {"backup": {"last_started": ist(2026, 10, 14, 23, 30).timestamp()}}})
+    t = Tablet(p, python="py", runner=FakeRunner(), now_fn=lambda: now)
+    t.serve(max_loops=1, sleep_fn=lambda s: None)
+    assert len(alerts) == 1 and "not running on the tablet" in alerts[0] and "Autostart" in alerts[0]
+    assert tablet.status_text(p, now_ts=now).count("Last interruption") == 1
+    # stopped cleanly (pp stop / update) and started again later: nothing to report
+    t2 = Tablet(p, python="py", runner=FakeRunner(), now_fn=lambda: now + 4 * 3600)
+    t2.serve(max_loops=1, sleep_fn=lambda s: None)
+    assert len(alerts) == 1
+
+
+def test_status_lists_the_last_days(tmp_path, monkeypatch):
+    p = tablet.paths(tmp_path)
+    monkeypatch.setattr(tablet, "git_head_short", lambda: "abc1234")
+    p["reports"].mkdir(parents=True)
+    tablet.save_json(p["reports"] / "report-2026-10-14.json", {"new_leads_today": 1012, "leads_total": 7290,
+                                                              "status": "complete"})
+    text = tablet.status_text(p, now_ts=ist(2026, 10, 15, 9, 0).timestamp())
+    assert "Wed 14 Oct:  1012 new leads, 7290 in total (complete)" in text
+
+
+@pytest.mark.skipif(shutil.which("bash") is None, reason="bash not installed")
+def test_opening_termux_starts_it_line_added_once(tmp_path):
+    home = tmp_path / "home"
+    home.mkdir()
+    (home / ".bashrc").write_text("source\n")                  # the tablet's own odd line stays as it is
+    lib = REPO / "scripts" / "tablet" / "lib.sh"
+    for _ in range(2):
+        r = subprocess.run(["bash", "-c", f". {lib}; pp_ensure_open_hook"], capture_output=True, text=True,
+                           env={"HOME": str(home), "PATH": "/usr/bin:/bin"})
+        assert r.returncode == 0, r.stderr
+    rc = (home / ".bashrc").read_text()
+    assert rc.startswith("source\n") and rc.count("plant-parlour: start when Termux opens") == 1
+    assert "watchdog.sh open" in rc and 'PD_CONTAINER' in rc
+    r = subprocess.run(["bash", "-n", str(home / ".bashrc")], capture_output=True, text=True)
+    assert r.returncode == 0, r.stderr

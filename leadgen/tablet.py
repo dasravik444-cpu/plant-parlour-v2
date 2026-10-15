@@ -71,39 +71,46 @@ def paths(base: Path | None = None) -> dict[str, Path]:
     return {"home": h, "settings": h / "settings.env", "key": h / "service-account.json", "state": h / "state",
             "db": h / "state" / "leadgen.sqlite", "outreach_db": h / "state" / "outreach.sqlite", "logs": h / "logs",
             "backups": h / "backups", "status": h / "status.json", "update": h / "update" / "update.json",
-            "lock": h / "scheduler.lock", "job_lock": h / "job.lock", "pid": h / "scheduler.pid",
+            "lock": h / "scheduler.lock", "pid": h / "scheduler.pid",
             "reports": h / "state" / "reports"}
 
 
-class JobLock:
-    """One job at a time: the scheduler waits for a job started by hand, a job by hand refuses while one runs."""
+LANES = ("leads", "outreach")
 
-    def __init__(self, p: dict[str, Path]):
-        self.path = p["job_lock"]
-        self.fh = None
+
+class JobLock:
+    """Two lanes, one job at a time in each: the lead generation (its memory) and the outreach (its memory).
+    The scheduler waits for a job started by hand; a job by hand refuses while one runs in its lane. So the test
+    e-mails can be sent while the morning lead run is busy. Updates and imports take both lanes."""
+
+    def __init__(self, p: dict[str, Path], lanes: tuple[str, ...] = LANES):
+        self.paths = [p["home"] / f"job-{lane}.lock" for lane in sorted(set(lanes))]    # fixed order: no deadlock
+        self.fhs: list = []
 
     def acquire(self, wait: bool) -> bool:
         import fcntl
 
-        self.path.parent.mkdir(parents=True, exist_ok=True)
-        self.fh = open(self.path, "w")
-        try:
-            fcntl.flock(self.fh, fcntl.LOCK_EX if wait else fcntl.LOCK_EX | fcntl.LOCK_NB)
-            return True
-        except OSError:
-            self.fh.close()
-            self.fh = None
-            return False
+        for path in self.paths:
+            path.parent.mkdir(parents=True, exist_ok=True)
+            fh = open(path, "w")
+            try:
+                fcntl.flock(fh, fcntl.LOCK_EX if wait else fcntl.LOCK_EX | fcntl.LOCK_NB)
+            except OSError:
+                fh.close()
+                self.release()
+                return False
+            self.fhs.append(fh)
+        return True
 
     def release(self) -> None:
-        if self.fh is not None:
-            try:
-                import fcntl
+        import fcntl
 
-                fcntl.flock(self.fh, fcntl.LOCK_UN)
+        while self.fhs:
+            fh = self.fhs.pop()
+            try:
+                fcntl.flock(fh, fcntl.LOCK_UN)
             finally:
-                self.fh.close()
-                self.fh = None
+                fh.close()
 
     def __enter__(self):
         return self
@@ -216,6 +223,7 @@ class Job:
     switch: str | None = None                        # settings key that turns the job on/off
     timeout_min: float = 60
     covers: tuple[str, ...] = ()                     # running this job also counts as running these
+    lanes: tuple[str, ...] = ("leads",)              # which memory it works on (see JobLock)
 
     def slots(self, day: datetime) -> list[datetime]:
         if self.weekdays is not None and day.weekday() not in self.weekdays:
@@ -229,7 +237,7 @@ class Job:
 
 OUTREACH_TIMES = [f"{h:02d}:11" for h in range(10, 19)]
 JOBS: dict[str, Job] = {j.name: j for j in [
-    Job("update", "Update", ["05:15"], switch="AUTO_UPDATE", timeout_min=30),
+    Job("update", "Update", ["05:15"], switch="AUTO_UPDATE", timeout_min=30, lanes=LANES),
     Job("daily", "Lead generation", ["06:00"],
         [["run", "--budget-minutes", "120"],
          ["email-hunt", "--limit", "1000", "--budget-minutes", "40"],
@@ -241,6 +249,7 @@ JOBS: dict[str, Job] = {j.name: j for j in [
          ["usp-refresh", "--limit", "400", "--budget-minutes", "10"]],
         switch="LEADGEN_ENABLED", timeout_min=100),
     Job("outreach", "Outreach", OUTREACH_TIMES, [["outreach"]], weekdays=(0, 1, 2, 3, 4, 5), switch="OUTREACH_ENABLED",
+        lanes=("outreach",),
         timeout_min=55),
     Job("backup", "Backup", ["23:30"], timeout_min=20),
 ]}
@@ -373,7 +382,7 @@ class Tablet:
 
     # -- jobs --
     def run_job(self, job: Job, *, manual: bool = False) -> int:
-        lock = JobLock(self.p)
+        lock = JobLock(self.p, job.lanes)
         if not lock.acquire(wait=not manual):
             print(busy_message())
             return BUSY
@@ -454,6 +463,21 @@ class Tablet:
         if send_alert(settings, f"{job.title} needs a look", body):
             self.change_status(lambda st: st.setdefault("alerts", {}).__setitem__(key, self.now()))
 
+    def _report_gap(self, since: float, until: float) -> None:
+        hours = (until - since) / 3600
+        self.log(f"it was not running from {fmt_ts(since)} to {fmt_ts(until)} ({hours:.1f} h) - Android probably "
+                 "closed Termux; missed jobs run now")
+        if self.now() - (self.status().get("alerts", {}).get("gap") or 0) < 6 * 3600:
+            return                                    # at most one such e-mail every 6 hours
+        body = (f"Plant Parlour was not running on the tablet from {fmt_ts(since)} to {fmt_ts(until)} "
+                f"(about {hours:.0f} hours). It has started again by itself and is catching up now.\n\n"
+                "This happens when Android closes Termux. To stop it:\n"
+                "  Settings > Apps > Manage apps > Termux: Autostart ON, Battery saver: No restrictions\n"
+                "  (the same for Termux:API and Termux:Boot), and lock Termux in the recent-apps screen.\n"
+                "Keep the tablet plugged in, and don't tap Exit in the Termux notification.\n")
+        if send_alert(effective_settings(self.p), "it had stopped for a while", body):
+            self.change_status(lambda st: st.setdefault("alerts", {}).__setitem__("gap", self.now()))
+
     # -- backup --
     def backup(self) -> int:
         day = now_local(self.now()).strftime("%Y-%m-%d")
@@ -497,12 +521,21 @@ class Tablet:
         self.p["pid"].write_text(str(os.getpid()), encoding="utf-8")   # `pp stop` asks this process to finish
         version = git_head_short()
 
+        gap: list = []
+
         def started(st):
-            st["scheduler"] = {"pid": os.getpid(), "started": self.now(), "heartbeat": self.now(), "version": version}
+            prev = st.get("scheduler") or {}
+            last = prev.get("heartbeat") or 0
+            if last and not prev.get("clean_stop") and self.now() - last > 3600:
+                gap[:] = [last, self.now()]           # it was stopped from outside (Android), not with pp stop
+            st["scheduler"] = {"pid": os.getpid(), "started": self.now(), "heartbeat": self.now(), "version": version,
+                               "last_gap": gap or prev.get("last_gap")}
             for js in st.get("jobs", {}).values():
                 js["running"] = False         # a job cut off by a restart is not running any more
         self.change_status(started)
         self.log(f"scheduler started (version {version})")
+        if gap:
+            self._report_gap(*gap)
         loops = 0
         # The first update check after a (re)start happens when the last one is more than a day old.
         last_check = (load_json(self.p["update"]).get("last_check") or 0)
@@ -533,6 +566,7 @@ class Tablet:
                     break
         finally:
             self.log("scheduler stopped")
+            self.change_status(lambda st: st.setdefault("scheduler", {}).__setitem__("clean_stop", True))
             try:
                 self.p["pid"].unlink()
             except OSError:
@@ -1004,10 +1038,21 @@ def status_text(p: dict[str, Path], now_ts: float | None = None) -> str:
         lines.append(f"Scheduler: NOT RUNNING (last seen {fmt_ts(hb)}). Start it with:  pp start")
     lines.append(f"Version: {git_head_short()}  |  automatic updates: {'on' if truthy(settings.get('AUTO_UPDATE')) else 'OFF'}"
                  f"  |  last update check: {fmt_ts(rec.get('last_check'))} ({rec.get('last_result', '-')})")
-    rep = load_json(p["reports"] / f"report-{now.date().isoformat()}.json")
-    if rep:
-        lines += ["", f"Today ({now.strftime('%a %d %b')}): {rep.get('new_leads_today', 0)} new leads "
-                      f"(target {rep.get('target', '?')}), {rep.get('leads_total', '?')} leads in total, last run: {rep.get('status', '?')}"]
+    gap = sch.get("last_gap")
+    if gap and len(gap) == 2:
+        lines.append(f"Last interruption: not running from {fmt_ts(gap[0])} to {fmt_ts(gap[1])} "
+                     "(Android closed it; see docs/TABLET.md step 6)")
+    days = []
+    for d in range(6, -1, -1):
+        day = (now - timedelta(days=d)).date()
+        rep = load_json(p["reports"] / f"report-{day.isoformat()}.json")
+        if rep:
+            days.append(f"  {day.strftime('%a %d %b')}: {rep.get('new_leads_today', 0):>5} new leads, "
+                        f"{rep.get('leads_total', '?')} in total ({rep.get('status', '?')})")
+    if days:
+        lines += ["", "Lead generation, last days:"] + days
+    else:
+        lines += ["", "Lead generation: no run on this tablet in the last 7 days yet."]
     lines += ["", f"{'Job':<17}{'Last run':<34}{'Next':<16}"]
     for name in ("daily", "followup", "outreach", "backup", "update"):
         job = JOBS[name]
@@ -1365,8 +1410,9 @@ def _main(argv=None) -> int:
     if args.cmd == "run":
         return Tablet(p, stream=sys.stdout).run_job(JOBS[args.job], manual=True)
     if args.cmd in ("update", "rollback", "import", "test-email", "record-tests", "replan"):
-        # These change the code or the memory: never while a job is running.
-        lock = JobLock(p)
+        # These change the code or a memory: never while a job is running in the same lane.
+        lanes = {"test-email": ("outreach",), "replan": ("leads",)}.get(args.cmd, LANES)
+        lock = JobLock(p, lanes)
         if not lock.acquire(wait=False):
             print(busy_message())
             return BUSY

@@ -114,6 +114,8 @@ Reply alerts arrive by e-mail. If a job has a problem twice in a row, or an upda
 
 If the tablet was off at one of these times, the job runs as soon as it is back.
 
+If Android closes Termux anyway, Plant Parlour starts again by itself - within 15 minutes, after a restart, or as soon as you open Termux - catches up on what it missed, and e-mails you that it had stopped (at most once every 6 hours). `pp status` shows the last interruption and the leads of the last 7 days.
+
 ## The `pp` command
 
 Type `pp` in Termux for a menu, or:
@@ -124,7 +126,7 @@ Type `pp` in Termux for a menu, or:
 | `pp logs` | today's log (`pp logs 300` for more, `pp logs live` to watch it) |
 | `pp update` | get the newest version now (tested first, undone if anything breaks) |
 | `pp rollback` | go back to the version before the last update |
-| `pp test-email` | the next 2 outreach e-mails: shown first, sent after your yes |
+| `pp test-email` | the next 2 outreach e-mails: shown first, sent after your yes (works while the lead generation runs) |
 | `pp settings` | change the sheet, key, Gmail, App Password, WhatsApp number |
 | `pp off outreach` / `pp on outreach` | pause / resume outreach (also `leads`, `live`, `updates`) |
 | `pp stop` / `pp start` | stop everything / start again (a stop also lasts through a restart) |

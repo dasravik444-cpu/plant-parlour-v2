@@ -107,6 +107,7 @@ menu() {
   done
 }
 
+pp_ensure_open_hook 2>/dev/null || true
 cmd="${1:-menu}"
 [ $# -gt 0 ] && shift
 case "$cmd" in

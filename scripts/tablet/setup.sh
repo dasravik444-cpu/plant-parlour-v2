@@ -202,7 +202,8 @@ for entry in "PP Status:pp status" "PP Update:pp update" "PP Logs:pp logs 100" "
   printf '#!%s/bin/bash\n%s\necho\nread -r -p "Press Enter to close " _\n' "$PREFIX" "$cmd" > "$HOME/.shortcuts/$name"
   chmod 700 "$HOME/.shortcuts/$name"
 done
-pp_info "  pp command, start after a restart, home-screen buttons: OK"
+pp_ensure_open_hook
+pp_info "  pp command, start after a restart or when Termux opens, home-screen buttons: OK"
 
 # ---------------------------------------------------------------------------------------------------------------
 step "Starting Plant Parlour"
