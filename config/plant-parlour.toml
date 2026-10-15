@@ -120,18 +120,32 @@ city = "Kolkata"
 notify_email = ""             # where reply alerts go; best as the secret OUTREACH_NOTIFY_EMAIL. Empty = the outreach Gmail
 
 [outreach.email]
-enabled = false               # PAUSED: automatic sending waits for the owner's go-ahead after the first test e-mails.
-                              # (A manual Outreach run with "max_emails" still sends that many.) Set true to start.
-start_per_day = 15            # warm-up: a new Gmail account starts slowly...
-step = 5                      # ...and adds 5 a day every 3 days of sending...
-step_every_days = 3
-max_per_day = 40              # ...up to this (a free Gmail allows ~500, but cold e-mail must stay low)
+enabled = true                # ON since 15 Oct 2026 (owner's go-ahead after the 2 test e-mails). false = pause.
+# Daily limit (first e-mails + follow-ups together). It starts at start_per_day and rises by `step` after every
+# good sending day (most of the limit used, no warning from Gmail, few bounces) up to max_per_day - about two
+# weeks from 40 to 350. A Gmail limit/block or many bounces pause sending and restart it lower, by themselves.
+# A free Gmail account stops at ~500 e-mails a day (all mail from it counts), so stay at 400 or below.
+start_per_day = 40
+step = 30
+step_every_days = 1
+max_per_day = 350
+max_per_run = 60              # e-mails per hourly run (each run sends about 1/9 of the day's limit)
+min_gap_seconds = 30          # random pause between two e-mails
+max_gap_seconds = 80
+run_budget_minutes = 45       # each hourly run stops sending after this long
 window_start = "10:00"        # Indian business hours only
-window_end = "18:30"
+window_end = "19:00"
 days = ["mon", "tue", "wed", "thu", "fri", "sat"]
-skip_dates = []               # e.g. ["2026-10-20"] for Durga Puja / Diwali holidays
-follow_up_days = [3, 7]       # follow-ups 3 and 7 days after the first e-mail (any reply stops them)
+skip_dates = []               # e.g. ["2026-11-08"] for Diwali: no e-mails on those days
+follow_up_days = [4]          # one follow-up 4 days after the first e-mail (any reply stops it). Follow-ups count
+                              # towards the daily limit: [4] reaches ~180 new businesses a day at 350 e-mails;
+                              # [3, 7] (two follow-ups) would reach ~125.
 include_unverified = false    # true = also e-mail info@/contact@ guesses (more bounces - not recommended)
+hold_bounce_rate = 0.04       # bounce rate (7 days) from which the daily limit stops rising
+pause_bounce_rate = 0.06      # ...from which sending pauses for 2 days (after at least pause_min_sends e-mails)
+pause_min_sends = 100
+max_bounces_per_day = 10      # pause until tomorrow when 24 hours bring at least this many bounces...
+pause_day_bounce_rate = 0.10  # ...and they are at least this share of the e-mails sent
 
 [outreach.whatsapp]
 # New numbers per day in the "WhatsApp Queue" tab (you send each with one tap). Warm-up like e-mail:

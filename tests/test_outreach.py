@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import re
 import smtplib
-from datetime import datetime
+from datetime import datetime, timedelta
 from email.message import EmailMessage
 from email.utils import make_msgid
 from zoneinfo import ZoneInfo
@@ -166,6 +166,7 @@ def cfg_with(**email):
 def runner(cfg, store, client, clock, smtp, imap=None, live=True, **kw):
     sender = GmailSender("me@gmail.com", "abcd efgh ijkl mnop", smtp_factory=smtp.factory)
     inbox = GmailInbox("me@gmail.com", "abcd efgh ijkl mnop", imap_factory=imap.factory) if imap else None
+    kw.setdefault("mx_check", lambda domain: True)
     return Outreach(cfg, store, client=client, sender=sender, inbox=inbox, live=live, now_fn=clock, sleep_fn=clock.sleep, **kw)
 
 
@@ -454,17 +455,87 @@ def test_owner_do_not_contact_and_lost_memory_never_double_email(tmp_path):
     assert [m["To"] for m in smtp.sent] == ["c@shop3.in"]
 
 
-def test_daily_limit_warms_up_slowly(tmp_path):
+RAMP = {"start_per_day": 40, "step": 30, "step_every_days": 1, "max_per_day": 350}
+
+
+def level_engine(tmp_path, clock=None, **email):
     store = OutreachStore(str(tmp_path / "o.sqlite"))
-    cfg = make_config(outreach={"sender": SENDER})       # defaults: 15/day, +5 every 3 sending days, max 40
-    o = Outreach(cfg, store, live=True, use_sheet=False, sender=None, inbox=None)
-    assert o._daily_cap("2026-11-01") == 15
-    for d in range(1, 13):
-        store.conn.execute("INSERT INTO sends(email,lead_key,step,sent_at,day,status) VALUES('x','k',1,0,?,'sent')", (f"2026-10-{d:02d}",))
-    assert o._daily_cap("2026-11-01") == 35
-    for d in range(13, 31):
-        store.conn.execute("INSERT INTO sends(email,lead_key,step,sent_at,day,status) VALUES('x','k',1,0,?,'sent')", (f"2026-10-{d:02d}",))
-    assert o._daily_cap("2026-11-01") == 40
+    cfg = make_config(outreach={"sender": SENDER, "email": {**RAMP, **email}})
+    clock = clock or Clock(ts(2026, 10, 16, 11))
+    return store, Outreach(cfg, store, live=True, use_sheet=False, sender=None, inbox=None, now_fn=clock, sleep_fn=clock.sleep)
+
+
+def sent_on(store, day, n, status="sent", at=None):
+    at = at if at is not None else datetime.fromisoformat(day + "T12:00:00+05:30").timestamp()
+    with store.tx():
+        store.conn.executemany("INSERT INTO sends(email,lead_key,step,sent_at,day,status) VALUES(?,?,1,?,?,?)",
+                               [(f"x{day}{i}{status}@d.in", "k", at, day, status) for i in range(n)])
+
+
+def next_day(o, day):
+    o._save_level(o._level(day))
+    return o._daily_cap(day)
+
+
+def test_daily_limit_rises_after_each_good_day_up_to_the_maximum(tmp_path):
+    store, o = level_engine(tmp_path)
+    caps, days = [], [f"2026-10-{d:02d}" for d in (16, 17, 19, 20, 21, 22, 23, 24, 26, 27, 28, 29, 30)]
+    for day in days:
+        caps.append(next_day(o, day))
+        sent_on(store, day, caps[-1])                       # the whole limit went out
+    assert caps == [40, 70, 100, 130, 160, 190, 220, 250, 280, 310, 340, 350, 350]
+    assert [r[1] for r in store.get("email_level_log")] == caps
+    assert store.get("email_level_log")[1][2] == "good day - raised"
+
+
+def test_daily_limit_only_rises_when_the_day_used_it(tmp_path):
+    store, o = level_engine(tmp_path)
+    assert next_day(o, "2026-10-16") == 40
+    sent_on(store, "2026-10-16", 20)                        # half: no evidence Gmail takes more
+    assert next_day(o, "2026-10-17") == 40 and "20 of 40 sent" in o._level("2026-10-17")["why"]
+    assert next_day(o, "2026-10-19") == 40                  # nothing sent on the 17th (e.g. tablet off)
+    sent_on(store, "2026-10-19", 33)                        # 80% or more counts as a good day
+    assert next_day(o, "2026-10-20") == 70
+    assert o._daily_cap("2026-10-20") == 70                 # fixed for the day, however often asked
+
+
+def test_gmail_limit_cuts_the_limit_then_it_settles_and_rises_again(tmp_path):
+    store, o = level_engine(tmp_path)
+    store.set("email_level", {"day": "2026-10-16", "cap": 250, "good": 0, "hold": 0, "flag": "limit", "why": ""})
+    sent_on(store, "2026-10-16", 180)
+    caps = []
+    for day in ("2026-10-17", "2026-10-19", "2026-10-20", "2026-10-21", "2026-10-22"):
+        caps.append(next_day(o, day))
+        sent_on(store, day, caps[-1])
+    assert caps == [150, 150, 150, 150, 180]                # 60%, three calm days, then up again
+    store.set("email_level", {"day": "2026-10-22", "cap": 180, "good": 0, "hold": 0, "flag": "blocked", "why": ""})
+    assert next_day(o, "2026-10-23") == 90                  # a block from Gmail: half
+
+
+def test_limit_never_drops_below_the_start_and_restarts_lower_after_a_long_break(tmp_path):
+    store, o = level_engine(tmp_path)
+    store.set("email_level", {"day": "2026-10-16", "cap": 50, "good": 0, "hold": 0, "flag": "blocked", "why": ""})
+    assert next_day(o, "2026-10-17") == 40
+    store.set("email_level", {"day": "2026-10-01", "cap": 300, "good": 0, "hold": 0, "flag": "", "why": ""})
+    sent_on(store, "2026-10-01", 300)
+    assert next_day(o, "2026-10-17") == 150 and "no sending for 16 days" in o._level("2026-10-17")["why"]
+
+
+def test_owner_can_lower_the_maximum_any_time(tmp_path):
+    store, o = level_engine(tmp_path)
+    store.set("email_level", {"day": "2026-10-16", "cap": 300, "good": 0, "hold": 0, "flag": "", "why": ""})
+    sent_on(store, "2026-10-16", 300)
+    o.o["email"]["max_per_day"] = 120
+    assert next_day(o, "2026-10-17") == 120
+
+
+def test_high_bounce_rate_stops_the_rise(tmp_path):
+    clock = Clock(ts(2026, 10, 17, 11))
+    store, o = level_engine(tmp_path, clock)
+    store.set("email_level", {"day": "2026-10-16", "cap": 100, "good": 0, "hold": 0, "flag": "", "why": ""})
+    sent_on(store, "2026-10-16", 100)
+    sent_on(store, "2026-10-16", 5, status="bounced")       # 5% >= hold_bounce_rate 4%
+    assert next_day(o, "2026-10-17") == 100 and "bounce rate 5.0%" in o._level("2026-10-17")["why"]
 
 
 def test_reply_classification():
@@ -603,3 +674,196 @@ def test_dry_run_copy_lists_the_emails_it_would_send(tmp_path, monkeypatch):
     assert rows == [["Lead ID", "Business", "To", "Result", "Subject", "Body"],
                     ["L1", "Leaf Cafe", "hello@leafcafe.example", "dry-run (not sent)", "Plants for Leaf Cafe",
                      "Hello Leaf Cafe team,"]]
+
+
+# -- automatic sending at volume: limits, brakes, alerts ---------------------------------------
+def test_gmail_limit_is_remembered_as_a_ceiling_that_rises_slowly(tmp_path):
+    clock = Clock(ts(2026, 10, 16, 15))
+    store, o = level_engine(tmp_path, clock)
+    store.set("email_level", {"day": "2026-10-16", "cap": 250, "good": 0, "hold": 0, "flag": "", "why": ""})
+    sent_on(store, "2026-10-16", 200, at=clock.t - 3600)
+    o._flag_day("limit")                                    # Gmail stopped us after 200 in 24 hours
+    lvl = store.get("email_level")
+    assert lvl["flag"] == "limit" and lvl["ceiling"] == 180
+    caps = []
+    for d in (17, 19, 20, 21, 22, 23, 24, 26, 27, 28, 29, 30):
+        day = f"2026-10-{d:02d}"
+        caps.append(next_day(o, day))
+        sent_on(store, day, caps[-1])
+    assert caps[0] == 150 and max(caps) <= 210
+    assert caps[:6] == [150, 150, 150, 150, 180, 180]       # cut, settle, then up to the ceiling only
+    assert 210 in caps                                      # after a week at the ceiling: one careful step
+    assert "Gmail's limit for this account" in store.get("email_level_log")[5][2]
+
+
+def bounce_world(bad_addrs):
+    def fail(msg):
+        if msg["To"] in bad_addrs:
+            return smtplib.SMTPRecipientsRefused({msg["To"]: (550, b"5.1.1 The email account that you tried to reach does not exist")})
+    return SmtpWorld(fail=fail)
+
+
+def many_leads(n, start=1):
+    return [lead(i, f"Shop {i}", email=f"hi@shop{i}.in", priority="High") for i in range(start, start + n)]
+
+
+def test_many_bounces_in_a_day_pause_until_tomorrow_and_count_again_after(tmp_path):
+    leads = many_leads(40)
+    sess, client = sheet_with(leads)
+    smtp = bounce_world({f"hi@shop{i}.in" for i in range(1, 11)})          # the first 10 do not exist
+    clock = Clock(ts(2026, 10, 16, 18, 15))
+    store = OutreachStore(str(tmp_path / "o.sqlite"))
+    cfg = cfg_with(start_per_day=30, max_per_day=30, max_per_run=30, max_bounces_per_day=10, pause_day_bounce_rate=0.1,
+                   min_gap_seconds=20, max_gap_seconds=30, window_end="18:59")
+    code, s = runner(cfg, store, client, clock, smtp).run()
+    assert code == 2 and s["bounces"] == 10 and s["new"] == 0
+    assert any("SENDING PAUSED" in n and "10 bounces" in n for n in s["notes"])
+    assert store.get("email_level")["flag"] == "bounces_day"
+    alert = smtp.to("owner@example.com")
+    assert len(alert) == 1 and "paused until" in alert[0]["Subject"]       # the owner hears it at once
+    clock.t = ts(2026, 10, 17, 11)                          # next day: the same 10 bounces do not stop it again
+    code, s = runner(cfg, store, client, clock, smtp).run()
+    assert code == 0 and len(smtp.to("hi@shop11.in")) == 1
+    assert "many bounces on the last sending day - kept" in store.get("email_level")["why"]
+
+
+def test_high_weekly_bounce_rate_pauses_two_days_once(tmp_path):
+    clock = Clock(ts(2026, 10, 16, 11))
+    sess, client = sheet_with(many_leads(5))
+    store = OutreachStore(str(tmp_path / "o.sqlite"))
+    sent_on(store, "2026-10-14", 100, at=clock.t - 2 * 86400)
+    sent_on(store, "2026-10-14", 7, status="bounced", at=clock.t - 2 * 86400)   # 7% of 100 in the week
+    smtp = SmtpWorld()
+    code, s = runner(cfg_with(), store, client, clock, smtp).run()
+    assert code == 2 and smtp.sent == [s for s in smtp.sent if s["To"] == "owner@example.com"]
+    assert any("bounce rate 7.0%" in n for n in s["notes"])
+    clock.t = ts(2026, 10, 17, 11)
+    runner(cfg_with(), store, client, clock, smtp).run()
+    assert not [m for m in smtp.sent if m["To"] != "owner@example.com"]  # still paused (2 days)
+    clock.t = ts(2026, 10, 19, 18, 15)                      # Monday: the old bounces no longer count
+    code, s = runner(cfg_with(), store, client, clock, smtp).run()
+    assert code == 0 and len([m for m in smtp.sent if m["To"] != "owner@example.com"]) == 3
+    assert store.get("email_level")["why"] == "too many addresses bounced - lowered"
+
+
+def test_gmail_limit_alert_waits_until_gmail_sends_again(tmp_path):
+    state = {"limit": True}
+
+    def fail(msg):
+        if state["limit"]:
+            return smtplib.SMTPDataError(550, b"5.4.5 Daily user sending limit exceeded.")
+    sess, client = sheet_with(many_leads(5))
+    smtp, clock = SmtpWorld(fail=fail), Clock(ts(2026, 10, 16, 12))
+    store = OutreachStore(str(tmp_path / "o.sqlite"))
+    code, s = runner(cfg_with(), store, client, clock, smtp).run()
+    assert code == 2 and smtp.sent == [] and len(store.get("owner_alerts")) == 1
+    state["limit"] = False
+    clock.t = ts(2026, 10, 16, 15)
+    runner(cfg_with(), store, client, clock, smtp).run()
+    assert smtp.sent == [] and len(store.get("owner_alerts")) == 1     # still paused: not even the alert is tried
+    clock.t = ts(2026, 10, 17, 11)
+    runner(cfg_with(), store, client, clock, smtp).run()
+    assert len(smtp.to("owner@example.com")) == 1 and store.get("owner_alerts") == []
+    assert "Gmail's daily limit was reached" in store.get("email_level")["why"]
+
+
+def test_domain_without_mail_server_is_skipped_and_never_tried_again(tmp_path):
+    leads = [lead(1, "Gone Cafe", email="hi@expired.in", priority="High"), lead(2, "Live Cafe", email="hi@live.in")]
+    sess, client = sheet_with(leads)
+    smtp, clock = SmtpWorld(), Clock(ts(2026, 10, 16, 18))
+    store = OutreachStore(str(tmp_path / "o.sqlite"))
+    checked = []
+
+    def mx(domain):
+        checked.append(domain)
+        return domain != "expired.in"
+    runner(cfg_with(), store, client, clock, smtp, mx_check=mx).run()
+    assert [m["To"] for m in smtp.sent] == ["hi@live.in"]
+    assert store.suppressed("hi@expired.in")
+    assert "Do Not Contact" in sess.tabs and any(r["Email or Phone"] == "hi@expired.in" for r in tab(sess, "Do Not Contact"))
+
+
+def test_stop_request_ends_the_batch_after_the_current_email(tmp_path):
+    sess, client = sheet_with(many_leads(10))
+    smtp, clock = SmtpWorld(), Clock(ts(2026, 10, 16, 18))
+    store = OutreachStore(str(tmp_path / "o.sqlite"))
+    o = runner(cfg_with(start_per_day=10, max_per_run=10), store, client, clock, smtp)
+    real_sleep = clock.sleep
+
+    def sleep(sec):
+        real_sleep(sec)
+        if len(smtp.sent) == 3:
+            o.stop_requested = True                        # the tablet asks it to stop
+    o.sleep = sleep
+    code, s = o.run()
+    assert len(smtp.sent) == 3 and s["new"] == 3 and any("stopped on request" in n for n in s["notes"])
+    assert sum(1 for r in tab(sess, "Leads") if r["Status"] == "Emailed") == 3     # the sheet is still written
+
+
+def test_automatic_sending_over_two_weeks(tmp_path):
+    """The whole loop (scripts/simulate_outreach.py runs the same at full size), hourly runs Monday-Saturday: the limit climbs, follow-ups go out once, bounces and
+    replies stop conversations, nothing goes out twice or outside business hours."""
+    import random as _random
+
+    rnd = _random.Random(7)
+    leads = [lead(i, f"Shop {i}", email=f"hi@shop{i}.in" if i % 10 < 6 else "", priority="High") for i in range(1, 501)]
+    bad = {f"hi@shop{i}.in" for i in range(1, 501) if i % 37 == 0}
+    sess, client = sheet_with(leads)
+    imap, log = ImapWorld(), []
+    clock = Clock(ts(2026, 10, 16, 10, 11))
+    pending = []
+
+    def fail(msg):
+        to = msg["To"]
+        log.append((clock.t, to, msg.get("In-Reply-To", "")))
+        if to in bad:
+            pending.append((clock.t + 600, mail("Mail Delivery Subsystem <mailer-daemon@googlemail.com>", "me@gmail.com",
+                                                "Delivery Status Notification (Failure)", f"Address not found: {to}",
+                                                extra={"X-Failed-Recipients": to})))
+        elif not msg.get("In-Reply-To") and to != "owner@example.com" and rnd.random() < 0.03:
+            pending.append((clock.t + 7200, mail(to, "me@gmail.com", "Re: " + msg["Subject"], "Yes please, send the list",
+                                                 in_reply_to=msg["Message-ID"])))
+    smtp = SmtpWorld(fail=fail)
+    store = OutreachStore(str(tmp_path / "o.sqlite"))
+    cfg = cfg_with(start_per_day=10, step=5, step_every_days=1, max_per_day=40, max_per_run=10, min_gap_seconds=30,
+                   max_gap_seconds=80, run_budget_minutes=45, window_end="19:00", follow_up_days=[4],
+                   pause_min_sends=100, max_bounces_per_day=10)
+    per_day = {}
+    for d in range(16):
+        day = datetime(2026, 10, 16, tzinfo=IST) + timedelta(days=d)
+        if day.weekday() == 6:
+            continue
+        for h in range(10, 19):
+            clock.t = max(clock.t, ts(day.year, day.month, day.day, h, 11))
+            for item in [x for x in pending if x[0] <= clock.t]:
+                imap.add(item[1])
+            pending[:] = [x for x in pending if x[0] > clock.t]
+            start = clock.t
+            code, s = runner(cfg, store, client, clock, smtp, imap).run()
+            assert clock.t - start <= 47 * 60, "a run must end well before the next one"
+            assert code in (0, 2), s
+        per_day[day.date().isoformat()] = store.get("email_level")["cap"]
+    to_leads = [x for x in log if x[1] != "owner@example.com"]
+    caps = list(per_day.values())
+    assert caps[:5] == [10, 15, 20, 25, 30] and caps[-1] == 40
+    for t, *_ in to_leads:                                   # business hours, never on Sunday
+        lt = datetime.fromtimestamp(t, IST)
+        assert lt.weekday() != 6 and "10:00" <= lt.strftime("%H:%M") < "19:00"
+    by_day = {}
+    for t, *_ in to_leads:
+        k = datetime.fromtimestamp(t, IST).date().isoformat()
+        by_day[k] = by_day.get(k, 0) + 1
+    assert all(by_day[k] <= per_day[k] for k in by_day)      # never above the day's limit
+    firsts = [to for _, to, irt in to_leads if not irt]
+    assert len(firsts) == len(set(firsts))                   # nobody gets the first e-mail twice
+    counts = {}
+    for _, to, _ in to_leads:
+        counts[to] = counts.get(to, 0) + 1
+    assert max(counts.values()) == 2                          # first e-mail + one follow-up, never more
+    replied = {r["email"] for r in store.q("SELECT email FROM replies")}
+    assert replied and all(counts[a] <= 2 for a in replied)
+    for r in store.q("SELECT email, received_at FROM replies"):
+        assert not [x for x in to_leads if x[1] == r["email"] and x[0] > r["received_at"]]   # a reply ends it
+    bounced = {r["email"] for r in store.q("SELECT email FROM threads WHERE stage='bounced'")}
+    assert bounced and all(counts[a] == 1 for a in bounced)  # a bounce ends it
+    assert not [x for x in to_leads if x[1] not in {f"hi@shop{i}.in" for i in range(1, 501)}]

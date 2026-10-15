@@ -1,9 +1,9 @@
 """One outreach run: read the sheet and the inbox, send today's e-mails, build the WhatsApp queue, write back.
 
 Safe by default: dry-run (nothing is sent) until the owner switches to live. In live mode the daily
-e-mail limit starts low and rises slowly (warm-up), e-mails go out only in business hours with random
-gaps, every reply/bounce/opt-out stops the conversation, and sending pauses by itself when Gmail signals
-a limit or too many addresses bounce."""
+e-mail limit starts low and rises day by day while sending stays healthy (see _next_level), e-mails go out
+only in business hours with random gaps, every reply/bounce/opt-out stops the conversation, and sending
+pauses by itself - and restarts lower - when Gmail signals a limit or too many addresses bounce."""
 from __future__ import annotations
 
 import math
@@ -11,7 +11,7 @@ import os
 import random
 import re
 import time
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta
 
 from ..enrich.phones import display_phone, parse_phone
 from ..sheets import SheetsClient, SheetsError
@@ -33,6 +33,10 @@ NEXT_STEP = {"positive": "Call them now (then send the price list on WhatsApp)",
              "negative": "Removed - they will not be contacted again",
              "other": "Read the reply and answer it yourself"}
 NO_REPLY_AFTER_DAYS = 5
+LEVEL_KEY, LEVEL_LOG_KEY, ALERTS_KEY = "email_level", "email_level_log", "owner_alerts"
+# What a warning from Gmail or from bounces does to the next day's limit: (factor, sending days without a rise).
+CUTS = {"blocked": (0.5, 5), "limit": (0.6, 3), "bounces": (0.7, 3)}
+FLAG_RANK = {"": 0, "bounces_day": 1, "bounces": 2, "limit": 3, "blocked": 4}
 
 
 def _minutes(hhmm: str) -> int:
@@ -63,7 +67,8 @@ def address_rank(addr: str) -> int:
 
 class Outreach:
     def __init__(self, cfg, store, *, client=None, sender=None, inbox=None, live: bool | None = None,
-                 max_emails: int | None = None, now_fn=time.time, sleep_fn=time.sleep, rng=None, use_sheet: bool = True):
+                 max_emails: int | None = None, now_fn=time.time, sleep_fn=time.sleep, rng=None, use_sheet: bool = True,
+                 mx_check=None):
         self.cfg, self.store = cfg, store
         self.o = cfg["outreach"]
         # The repository is public: the owner's number and alert address can come from GitHub secrets instead.
@@ -83,6 +88,13 @@ class Outreach:
         self.inbox = inbox if inbox is not None else (GmailInbox(addr, pw) if addr and pw else None)
         self.client = client
         self.use_sheet = use_sheet
+        # Before a first e-mail: does the address's domain still receive mail? (DNS only; unknown = yes.)
+        if mx_check is None and self.live:
+            from ..enrich.emails import MXChecker
+
+            mx_check = MXChecker(enabled=bool(cfg["enrich"].get("check_email_mx", True))).has_mx
+        self.mx_check = mx_check
+        self.stop_requested = False
         self.notes: list[str] = []
         self.code = 0
         self.stats = {"new": 0, "followups": 0, "bounces": 0, "positive": 0, "negative": 0, "other": 0,
@@ -174,6 +186,7 @@ class Outreach:
                 self.code = max(self.code, 2)
                 status = "sheet error"
         self._notify_owner()
+        self._flush_owner_alerts()
         summary = self._summary(status)
         if sheet is not None and (self._did_something() or self.notes):
             try:
@@ -322,10 +335,110 @@ class Outreach:
             self._set_status(self.by_key.get(t["lead_key"]), STATUS_DONE)
 
     # ------------------------------------------------------------------ e-mail
-    def _daily_cap(self, today: str) -> int:
+    # Today's limit (the "level") is worked out once per sending day from how the last sending day went:
+    #   * it rises by `step` after every `step_every_days` good days, up to max_per_day - a good day used at
+    #     least 80% of its limit, with no warning from Gmail and a low bounce rate;
+    #   * it stays put while the 7-day bounce rate is at hold_bounce_rate or more, after a day with too many
+    #     bounces, after a day that sent less (no evidence the account takes more), and for a few days after a cut;
+    #   * Gmail's daily-limit error cuts it to 60%, a block from Gmail to 50%, a high bounce rate to 70%;
+    #   * after more than 14 days without sending it restarts at half.
+    def _level(self, today: str) -> dict:
+        st = self.store.get(LEVEL_KEY)
+        st = st if isinstance(st, dict) and st.get("cap") else None
+        if st and st.get("day") == today:
+            return st
+        return self._next_level(st, today)
+
+    def _next_level(self, prev: dict | None, today: str) -> dict:
         e = self.o["email"]
-        days = self.store.scalar("SELECT COUNT(DISTINCT day) FROM sends WHERE status='sent' AND day < ?", (today,), 0)
-        return min(e["max_per_day"], e["start_per_day"] + e["step"] * (days // e["step_every_days"]))
+        top = int(e["max_per_day"])
+        start = min(int(e["start_per_day"]), top)
+        if prev is None:
+            return {"day": today, "cap": start, "good": 0, "hold": 0, "flag": "", "why": "first day of automatic sending"}
+        cap, good, hold, flag = int(prev["cap"]), int(prev.get("good", 0)), int(prev.get("hold", 0)), prev.get("flag", "")
+        sent = self.store.scalar("SELECT COUNT(*) FROM sends WHERE day=? AND status IN ('sent','invalid')", (prev["day"],), 0)
+        try:
+            idle = (date.fromisoformat(today) - date.fromisoformat(prev["day"])).days
+        except ValueError:
+            idle = 0
+        _, n7, rate = self._bounces(7 * 86400, "bounce_reset_week")
+        if flag in CUTS:
+            factor, hold = CUTS[flag]
+            cap, good = int(cap * factor), 0
+            why = {"blocked": "Gmail blocked sending - restarted at half",
+                   "limit": "Gmail's daily limit was reached - lowered",
+                   "bounces": "too many addresses bounced - lowered"}[flag]
+        elif idle > 14:
+            cap, good = cap // 2, 0
+            why = f"no sending for {idle} days - restarted at half"
+        elif sent == 0:
+            why = "nothing was sent on the last sending day - kept"
+        elif flag == "bounces_day":
+            why = "many bounces on the last sending day - kept"
+        elif n7 >= int(e["pause_min_sends"]) and rate >= float(e["hold_bounce_rate"]):
+            why = f"bounce rate {rate:.1%} in 7 days - kept until it improves"
+        elif hold > 0:
+            hold -= 1
+            why = "settling after a warning - kept"
+        elif sent < 0.8 * cap:
+            why = f"{sent} of {cap} sent on the last sending day - kept"
+        else:
+            good += 1
+            if cap >= top:
+                good, why = 0, "good day - at the maximum"
+            elif good >= int(e["step_every_days"]):
+                cap, good = cap + int(e["step"]), 0
+                why = "good day - raised"
+            else:
+                why = "good day"
+        # Gmail's limit was reached before: stay under what it took then; that ceiling rises one step a week.
+        ceiling, ceil_days = prev.get("ceiling"), int(prev.get("ceil_days", 0))
+        if ceiling:
+            if flag == "" and sent >= 0.8 * min(cap, ceiling) and cap >= ceiling:
+                ceil_days += 1
+                if ceil_days >= 6:
+                    ceiling, ceil_days = int(ceiling) + int(e["step"]), 0
+            if cap > int(ceiling):
+                cap = int(ceiling)
+                why = f"kept under Gmail's limit for this account (about {round(int(ceiling) / 0.9)} a day)"
+            if int(ceiling) >= top:
+                ceiling = None
+        cap = max(start, min(top, cap))
+        out = {"day": today, "cap": cap, "good": good, "hold": hold, "flag": "", "why": why}
+        if ceiling:
+            out.update(ceiling=int(ceiling), ceil_days=ceil_days)
+        return out
+
+    def _save_level(self, st: dict) -> None:
+        stored = self.store.get(LEVEL_KEY)
+        self.store.set(LEVEL_KEY, st)
+        if not (isinstance(stored, dict) and stored.get("day") == st["day"]):
+            log_rows = [r for r in (self.store.get(LEVEL_LOG_KEY) or []) if isinstance(r, list) and r and r[0] != st["day"]]
+            self.store.set(LEVEL_LOG_KEY, (log_rows + [[st["day"], st["cap"], st["why"]]])[-60:])
+            self.notes.append(f"today's e-mail limit: {st['cap']} ({st['why']})")
+
+    def _flag_day(self, flag: str) -> None:
+        """Remember today's warning; tomorrow's limit takes it into account."""
+        st = dict(self._level(self._today()))
+        if FLAG_RANK.get(flag, 0) > FLAG_RANK.get(st.get("flag", ""), 0):
+            st["flag"] = flag
+        if flag == "limit":
+            sent24 = self.store.scalar("SELECT COUNT(*) FROM sends WHERE sent_at>=? AND status IN ('sent','invalid')",
+                                       (self.now() - 86400,), 0)
+            start = min(int(self.o["email"]["start_per_day"]), int(self.o["email"]["max_per_day"]))
+            st["ceiling"], st["ceil_days"] = max(start, int(sent24 * 0.9)), 0
+        self._save_level(st)
+
+    def _daily_cap(self, today: str) -> int:
+        return int(self._level(today)["cap"])
+
+    def _bounces(self, window_s: float, reset_key: str = "") -> tuple[int, int, float]:
+        """(bounced, sent, share) in the window - which starts again after a pause for bounces, so the same
+        old bounces do not pause sending a second time."""
+        since = max(self.now() - window_s, float(self.store.get(reset_key, 0) or 0) if reset_key else 0.0)
+        sent = self.store.scalar("SELECT COUNT(*) FROM sends WHERE sent_at>=? AND status IN ('sent','invalid')", (since,), 0)
+        bad = self.store.scalar("SELECT COUNT(*) FROM sends WHERE sent_at>=? AND status IN ('invalid','bounced')", (since,), 0)
+        return bad, sent, (bad / sent if sent else (1.0 if bad else 0.0))
 
     def _window(self, local: datetime) -> tuple[bool, str, datetime]:
         e = self.o["email"]
@@ -349,9 +462,9 @@ class Outreach:
         today = local.date().isoformat()
         cap = self._daily_cap(today)
         used = self.store.scalar("SELECT COUNT(*) FROM sends WHERE day=? AND status IN ('sent','invalid')", (today,), 0)
-        remaining = max(0, cap - used)
         self.cap, self.used_today = cap, used
         if not self.live:
+            remaining = max(0, cap - used)
             n = remaining if self.max_emails is None else min(self.max_emails, remaining)
             for item in self._pick(n):
                 msg = self._compose(item)
@@ -368,6 +481,12 @@ class Outreach:
         if not ok:
             self.notes.append(f"no e-mails this run: {why}")
             return
+        if self.max_emails is None:
+            # The first automatic run of a sending day fixes today's limit.
+            self._save_level(self._level(today))
+        if self._bounce_brakes():
+            return
+        remaining = max(0, cap - used)
         if remaining <= 0:
             return
         problem = self.sender.check()
@@ -440,6 +559,11 @@ class Outreach:
                     continue
                 if e["one_per_domain"] and dom not in FREE_MAIL and dom in used_domains:
                     continue
+                if self.live and self.mx_check and dom not in FREE_MAIL and self.mx_check(dom) is False:
+                    # The domain has expired or has no mail server any more: it would only bounce.
+                    self.store.suppress(addr, "email", "domain no longer receives e-mail (no mail server)", "dns")
+                    sup.add(addr)
+                    continue
                 out.append({"kind": "new", "step": 1, "email": addr, "lead": lead, "thread": None})
                 used_emails.add(addr)
                 used_leads.add(lead.key)
@@ -487,13 +611,19 @@ class Outreach:
         return build_message(sender_name=s.get("name", ""), sender_addr=addr, to=item["email"], subject=subject, body=body,
                              in_reply_to=ids[-1] if ids else "", references=ids)
 
+    def _nap(self, seconds: float) -> None:
+        if self.sleep is not time.sleep:
+            self.sleep(seconds)          # tests: a fake clock
+            return
+        end = time.monotonic() + seconds
+        while not self.stop_requested and end - time.monotonic() > 0:
+            time.sleep(min(1.0, end - time.monotonic()))
+
     def _send_batch(self, batch: list[dict]) -> None:
         e = self.o["email"]
         started = self.now()
         budget = float(e["run_budget_minutes"]) * 60
         temp_failures = 0
-        bounces_today = self.store.scalar("SELECT COUNT(*) FROM sends WHERE day=? AND status IN ('invalid','bounced')",
-                                          (self._today(),), 0)
         try:
             for i, item in enumerate(batch):
                 if i:
@@ -501,9 +631,12 @@ class Outreach:
                     if self.now() - started + gap > budget:
                         self.notes.append("run time budget reached - the rest goes out in the next run")
                         break
-                    self.sleep(gap)
+                    self._nap(gap)
                     if not self._window(self._local())[0]:
                         break
+                if self.stop_requested:
+                    self.notes.append("stopped on request - the rest goes out in the next run")
+                    break
                 try:
                     msg = self._compose(item)
                     res = self.sender.send(msg)
@@ -517,13 +650,11 @@ class Outreach:
                     temp_failures = 0
                     continue
                 if res.status == "invalid":
-                    bounces_today += 1
-                    if bounces_today >= e["max_bounces_per_day"]:
-                        self._pause(1, f"{bounces_today} addresses bounced today")
+                    if self._day_bounce_brake():
                         break
                 elif res.status in ("limit", "blocked"):
                     days = 1 if res.status == "limit" else 2
-                    self._pause(days, f"Gmail said: {res.code} {res.detail[:150]}")
+                    self._pause(days, f"Gmail said: {res.code} {res.detail[:150]}", res.status)
                     break
                 elif res.status == "auth":
                     self.notes.append("Gmail refused the login - check OUTREACH_GMAIL_APP_PASSWORD (it changes when the Google password changes)")
@@ -584,27 +715,51 @@ class Outreach:
                 self.stats["followups"] += 1
                 self._set_status(lead, STATUS_FOLLOWUP.format(n=step - 1))
 
-    def _pause(self, days: int, reason: str) -> None:
+    def _pause(self, days: int, reason: str, flag: str) -> None:
         local = self._local()
         until = (local + timedelta(days=days)).replace(hour=0, minute=5, second=0, microsecond=0)
         self.store.set("paused_until", until.timestamp())
         self.store.set("pause_reason", reason)
+        if flag.startswith("bounces"):
+            # Counting starts again after the pause: the same bounces must not pause sending twice.
+            self.store.set("bounce_reset_day", until.timestamp())
+            if flag == "bounces":
+                self.store.set("bounce_reset_week", until.timestamp())
+        self._flag_day(flag)
         self.notes.append(f"SENDING PAUSED until {until.strftime('%Y-%m-%d %H:%M')}: {reason}")
         self.code = max(self.code, 2)
+        nxt = {"bounces_day": "the same limit", "bounces": "a lower limit", "limit": "a lower limit",
+               "blocked": "half the limit"}.get(flag, "a lower limit")
+        self._queue_owner_alert(
+            flag, f"E-mail sending paused until {until.strftime('%a %d %b %H:%M')}",
+            f"Automatic outreach e-mails are paused until {until.strftime('%A %d %B, %H:%M')}.\n\nReason: {reason}\n\n"
+            f"Nothing to do: sending restarts by itself then, with {nxt}. If this happens often, tell your developer.\n"
+            "Replies, the WhatsApp queue and the Google Sheet keep working as usual.")
 
-    def _check_bounce_rate(self) -> None:
+    def _bounce_brakes(self) -> bool:
+        """Before sending: too many bounces in the last day or week pause sending (True = paused now)."""
+        return self._day_bounce_brake() or self._check_bounce_rate()
+
+    def _day_bounce_brake(self) -> bool:
         e = self.o["email"]
-        since = self.now() - 7 * 86400
-        sent = self.store.scalar("SELECT COUNT(*) FROM sends WHERE sent_at>=? AND status IN ('sent','invalid')", (since,), 0)
-        bad = self.store.scalar("SELECT COUNT(*) FROM sends WHERE sent_at>=? AND status IN ('invalid','bounced')", (since,), 0)
-        if sent >= e["pause_min_sends"] and bad / max(sent, 1) >= e["pause_bounce_rate"]:
+        bad, sent, rate = self._bounces(86400, "bounce_reset_day")
+        if bad >= int(e["max_bounces_per_day"]) and rate >= float(e["pause_day_bounce_rate"]):
             if float(self.store.get("paused_until", 0) or 0) <= self.now():
-                self._pause(2, f"bounce rate {bad}/{sent} in 7 days is too high - check the e-mail addresses")
+                self._pause(1, f"{bad} bounces for {sent} e-mails sent in the last 24 hours", "bounces_day")
+            return True
+        return False
+
+    def _check_bounce_rate(self) -> bool:
+        e = self.o["email"]
+        bad, sent, rate = self._bounces(7 * 86400, "bounce_reset_week")
+        if sent >= int(e["pause_min_sends"]) and rate >= float(e["pause_bounce_rate"]):
+            if float(self.store.get("paused_until", 0) or 0) <= self.now():
+                self._pause(2, f"bounce rate {rate:.1%} ({bad} of {sent} e-mails in 7 days) is too high", "bounces")
+            return True
+        return False
 
     def bounce_rate(self) -> str:
-        since = self.now() - 7 * 86400
-        sent = self.store.scalar("SELECT COUNT(*) FROM sends WHERE sent_at>=? AND status IN ('sent','invalid')", (since,), 0)
-        bad = self.store.scalar("SELECT COUNT(*) FROM sends WHERE sent_at>=? AND status IN ('invalid','bounced')", (since,), 0)
+        bad, sent, _ = self._bounces(7 * 86400)
         return f"{100 * bad / sent:.1f}% ({bad}/{sent})" if sent else ""
 
     # ------------------------------------------------------------------ WhatsApp
@@ -734,6 +889,31 @@ class Outreach:
         self.sender.close()
         if not res.ok:
             self.notes.append(f"could not e-mail the reply alert to {to}: {res.status}")
+
+    def _queue_owner_alert(self, flag: str, subject: str, body: str) -> None:
+        alerts = [a for a in (self.store.get(ALERTS_KEY) or []) if isinstance(a, dict)]
+        alerts.append({"subject": subject, "body": body, "at": self.now(), "flag": flag})
+        self.store.set(ALERTS_KEY, alerts[-5:])
+
+    def _flush_owner_alerts(self) -> None:
+        """E-mail the owner about pauses. After a limit or block from Gmail the alert waits until Gmail sends again."""
+        alerts = [a for a in (self.store.get(ALERTS_KEY) or []) if isinstance(a, dict) and self.now() - a.get("at", 0) < 3 * 86400]
+        if not alerts or not (self.live and self.sender):
+            self.store.set(ALERTS_KEY, alerts)
+            return
+        gmail_paused = float(self.store.get("paused_until", 0) or 0) > self.now()
+        to = str(self.o["sender"].get("notify_email") or "").strip() or self.sender.address
+        keep = []
+        for a in alerts:
+            if keep or (gmail_paused and a.get("flag") in ("limit", "blocked")):
+                keep.append(a)
+                continue
+            res = self.sender.send(build_message(sender_name="Lead outreach", sender_addr=self.sender.address, to=to,
+                                                 subject=a["subject"], body=a["body"]))
+            if not res.ok:
+                keep.append(a)
+        self.sender.close()
+        self.store.set(ALERTS_KEY, keep)
 
     # ------------------------------------------------------------------ report
     def _report_row(self) -> list:

@@ -3,7 +3,7 @@
 The outreach system reads the **Leads** tab of your Google Sheet and contacts the leads, at no cost:
 
 * **E-mail (automatic).** Personal, plain-text e-mails from a free Gmail account, sent in Indian business
-  hours with random gaps, best leads first, with two polite follow-ups. Any reply stops the follow-ups;
+  hours with random gaps, best leads first, with one polite follow-up. Any reply stops the follow-up;
   "no" removes the lead for good. When someone replies you get an alert e-mail, and the reply appears
   in the **Replies** tab with the phone number: call them.
 * **WhatsApp (one tap per message).** Every morning the **WhatsApp Queue** tab gets personalised messages
@@ -15,18 +15,36 @@ The outreach system reads the **Leads** tab of your Google Sheet and contacts th
   lead's next mobile number (if it has one) is tried the next day. Leads who answer "yes" by e-mail are put
   at the top of the queue: they asked for it.
 
-It runs on the tablet every hour from 10:11 to 18:11 IST, Monday to Saturday (see [TABLET.md](TABLET.md)).
+It runs on the tablet every hour from 10:11 to 18:11 IST, Monday to Saturday, sending until 19:00 (see
+[TABLET.md](TABLET.md)).
 `pp off outreach` pauses it, `pp on outreach` resumes it.
 
 ## Why it works this way
 
-**E-mail.** A new Gmail account that suddenly sends hundreds of cold e-mails gets flagged. So the system
-starts at 15 e-mails a day and adds 5 every three sending days up to 40 (the "warm-up"), spaces e-mails
-75-210 seconds apart, only in business hours, uses plain text with **no links, images or tracking**
-(links in cold e-mails hurt delivery), and pauses by itself when Gmail signals a limit or more than 5%
-of addresses bounce. It only e-mails addresses the business published itself (website or listing); the
-guessed info@/contact@ addresses stay off unless you switch them on, because bounces damage the account.
-Free Gmail allows about 500 e-mails a day, but for cold e-mail 40 is the safe ceiling for one inbox.
+**E-mail volume (owner's target: 300-400 a day, set to 350).** A free Gmail account stops at about 500
+e-mails a day (everything sent from it counts), and an account that jumps straight to hundreds of cold
+e-mails gets blocked. So the daily limit (first e-mails and follow-ups together) **climbs by itself**:
+
+* it starts at **40** and rises by **30 after every good sending day** up to **350** - about two weeks,
+  Monday to Saturday. A good day used at least 80% of its limit with no warning from Gmail and few bounces;
+* it **stays put** while more than 4% of e-mails bounce (7 days), after a day with many bounces, and for a
+  few days after a warning;
+* Gmail's "daily limit" error **pauses sending until tomorrow** and lowers the limit to 60%; the system then
+  remembers what this account took and stays under it, trying one step higher once a week. A spam block
+  from Gmail pauses 2 days and halves the limit;
+* bounces: 10 or more in 24 hours that are at least 10% of what was sent pause sending until tomorrow; 6%
+  or more in a week (after 100 e-mails) pauses 2 days and lowers the limit to 70%. Before a first e-mail,
+  an address whose domain no longer has a mail server is skipped (it would only bounce);
+* every pause e-mails you (an alert after a Gmail limit waits until Gmail sends again) and shows in
+  `pp status`; nothing needs doing - it restarts by itself.
+
+At 350 a day with one follow-up 4 days later, about **180 new businesses** get a first e-mail each day. The
+leads supply plenty: ~1,000 new leads a day, ~56% with a real e-mail address. Each hourly run sends about a
+ninth of the day's limit, 30-80 seconds apart, for at most 45 minutes. E-mails are plain text with **no
+links, images or tracking** (links in cold e-mails hurt delivery). Only addresses the business published
+itself (website or listing) are used; guessed info@/contact@ addresses stay off, because bounces damage the
+account. `scripts/simulate_outreach.py` runs weeks of this against a pretend Gmail (normal data, bad data,
+a stricter Gmail limit, a spam block) to check it.
 
 **WhatsApp.** There is no free, allowed way to send WhatsApp messages automatically:
 
@@ -127,8 +145,11 @@ The number of WhatsApp messages a day is set in `[outreach.whatsapp]`: `start_pe
 
 | If | The system |
 |---|---|
-| Gmail says "daily limit" or blocks a message | stops sending until tomorrow and records a problem (`pp status`; the tablet e-mails you from the 2nd time) |
-| 3 addresses bounce in a day, or 5% in a week | pauses sending for 1-2 days and records a problem |
+| Gmail says "daily limit" | stops until tomorrow, lowers the limit to 60% and stays under that account's limit; e-mails you |
+| Gmail blocks a message as spam | stops for 2 days, halves the limit; e-mails you |
+| Many bounces (10+ and 10% in 24 hours, or 6% in a week) | pauses until tomorrow / for 2 days (lower limit); e-mails you |
+| More than 4% bounce in a week | the daily limit stops rising |
+| The address's domain has no mail server any more | skipped and put on Do Not Contact |
 | The Gmail login fails | sends nothing, records a problem |
 | One lead's address is bad or odd | skips that lead, carries on |
 | A lead replies "no" / "stop" / "not interested" | removes e-mail and phone numbers for good |

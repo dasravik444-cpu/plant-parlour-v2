@@ -202,10 +202,21 @@ def cmd_outreach(cfg, args) -> int:
     from .outreach.engine import Outreach
     from .outreach.store import OutreachStore
 
+    import signal
+
     store = OutreachStore(args.db)
     try:
         live = None if args.mode is None else args.mode == "live"
         engine = Outreach(cfg, store, live=live, max_emails=args.max_emails)
+
+        def stop(_signum, _frame):
+            # The tablet is stopping: finish the e-mail being sent, save everything, then end.
+            engine.stop_requested = True
+        for sig in (signal.SIGTERM, signal.SIGINT):
+            try:
+                signal.signal(sig, stop)
+            except (ValueError, OSError):
+                pass
         code, summary = engine.run()
     finally:
         store.close()

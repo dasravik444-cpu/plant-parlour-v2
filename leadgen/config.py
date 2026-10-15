@@ -57,7 +57,11 @@ DEFAULTS: dict = {
                   "max_per_run": 8, "min_gap_seconds": 75, "max_gap_seconds": 210,
                   "window_start": "10:00", "window_end": "18:30", "days": ["mon", "tue", "wed", "thu", "fri", "sat"],
                   "skip_dates": [], "follow_up_days": [3, 7], "include_unverified": False, "one_per_domain": True,
-                  "pause_bounce_rate": 0.05, "pause_min_sends": 20, "max_bounces_per_day": 3, "run_budget_minutes": 35,
+                  # bounces: no rise of the daily limit from hold_bounce_rate (7 days); pause 2 days from
+                  # pause_bounce_rate (7 days, at least pause_min_sends e-mails); pause for the day when the last 24
+                  # hours have max_bounces_per_day bounces or more AND pause_day_bounce_rate of the e-mails sent
+                  "hold_bounce_rate": 0.04, "pause_bounce_rate": 0.06, "pause_min_sends": 100,
+                  "max_bounces_per_day": 10, "pause_day_bounce_rate": 0.10, "run_budget_minutes": 35,
                   "subjects": [], "first": "", "follow_ups": []},
         "whatsapp": {"enabled": True, "start_per_day": 20, "step": 10, "step_every_days": 3, "max_per_day": 50,
                      "include_mobiles": True, "message": "", "opted_in_message": ""},
@@ -179,7 +183,7 @@ def _outreach_errors(o: dict) -> list[str]:
     int_in("step", 0, 50)
     int_in("step_every_days", 1, 30)
     int_in("max_per_day", 1, 400)      # a free Gmail account allows ~500/day; stay well below
-    int_in("max_per_run", 1, 50)
+    int_in("max_per_run", 1, 100)
     int_in("max_bounces_per_day", 1, 50)
     int_in("pause_min_sends", 1, 1000)
     try:
@@ -202,8 +206,17 @@ def _outreach_errors(o: dict) -> list[str]:
     if not (isinstance(f, list) and len(f) <= 5 and all(isinstance(x, int) and 1 <= x <= 60 for x in f)
             and f == sorted(set(f))):
         errors.append("outreach.email.follow_up_days must be increasing whole days 1..60 (at most 5), e.g. [3, 7]")
-    if not 0 < float(e.get("pause_bounce_rate", 0)) < 1:
-        errors.append("outreach.email.pause_bounce_rate must be between 0 and 1")
+    for name in ("pause_bounce_rate", "hold_bounce_rate", "pause_day_bounce_rate"):
+        try:
+            if not 0 < float(e.get(name, 0)) < 1:
+                errors.append(f"outreach.email.{name} must be between 0 and 1")
+        except (TypeError, ValueError):
+            errors.append(f"outreach.email.{name} must be a number between 0 and 1")
+    try:
+        if not 5 <= float(e.get("run_budget_minutes", 0)) <= 55:
+            errors.append("outreach.email.run_budget_minutes must be 5..55 (the runs are an hour apart)")
+    except (TypeError, ValueError):
+        errors.append("outreach.email.run_budget_minutes must be a number")
     w = o["whatsapp"]
     if "daily_cap" in w:
         errors.append("outreach.whatsapp.daily_cap was replaced by start_per_day / step / step_every_days / max_per_day")

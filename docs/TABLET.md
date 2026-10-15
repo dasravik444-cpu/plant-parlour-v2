@@ -97,18 +97,20 @@ pp test-email
 ```
 
 It shows both e-mails exactly as they will go out (to whom, subject, text) and sends them only when you type `y`.
-Tell me what you think of them; automatic sending stays paused until you say go.
+(Done on 15 Oct 2026; automatic sending has been on since - see [OUTREACH.md](OUTREACH.md) for how the daily
+limit climbs from 40 to 350.)
 
 ## Every day
 
 Nothing to do on the tablet. Look at the Google Sheet as before (Leads, Daily Report, WhatsApp Queue, Replies).
-Reply alerts arrive by e-mail. If a job has a problem twice in a row, or an update is undone, the tablet e-mails you.
+Reply alerts arrive by e-mail. If a job has a problem twice in a row, an update is undone, or e-mail sending pauses
+(Gmail limit, many bounces), the tablet e-mails you; a pause restarts by itself.
 
 | India time | What the tablet does |
 |---|---|
 | 05:15 | checks for a new version (tests it; keeps it only if everything passes) |
 | 06:00 | the day's new leads, then the e-mail hunt and USP lines for them |
-| 10:11 - 18:11, hourly, Mon-Sat | outreach: e-mails (when switched on), WhatsApp queue, replies |
+| 10:11 - 18:11, hourly, Mon-Sat | outreach: e-mails (until 19:00; 40 a day at first, rising to 350), WhatsApp queue, replies |
 | 11:30, 16:30, 21:30 | follow-ups: unfinished website reading, e-mail hunt, USP lines |
 | 23:30 | backup of the campaign memory (last 7 days kept on the tablet) |
 
@@ -122,7 +124,7 @@ Type `pp` in Termux for a menu, or:
 
 | Command | What it does |
 |---|---|
-| `pp status` | is it running, what ran (OK / problem), what runs next, today's numbers |
+| `pp status` | is it running, leads and e-mails of the last days (limit, sent, bounces, replies, any pause), what runs next |
 | `pp logs` | today's log (`pp logs 300` for more, `pp logs live` to watch it) |
 | `pp update` | get the newest version now (tested first, undone if anything breaks) |
 | `pp rollback` | go back to the version before the last update |

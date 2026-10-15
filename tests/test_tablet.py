@@ -7,6 +7,7 @@ import os
 import shutil
 import sqlite3
 import subprocess
+import time
 import zipfile
 from datetime import datetime
 from pathlib import Path
@@ -542,3 +543,74 @@ def test_opening_termux_starts_it_line_added_once(tmp_path):
     assert "watchdog.sh open" in rc and 'PD_CONTAINER' in rc
     r = subprocess.run(["bash", "-n", str(home / ".bashrc")], capture_output=True, text=True)
     assert r.returncode == 0, r.stderr
+
+
+def test_a_job_ended_by_pp_stop_shows_stopped_not_a_problem(tmp_path, monkeypatch):
+    p = tablet.paths(tmp_path)
+    monkeypatch.setattr(tablet, "git_head_short", lambda: "abc1234")
+    alerts = []
+    monkeypatch.setattr(tablet, "send_alert", lambda s, subj, body: alerts.append(subj) or True)
+    clock = [ist(2026, 10, 10, 11, 30).timestamp()]
+    fake = FakeRunner({"run": 143})
+
+    def runner(*a, **k):
+        t.stop = True                                                   # pp stop arrives during the job
+        return fake(*a, **k)
+    t = Tablet(p, python="py", runner=runner, now_fn=lambda: clock[0])
+    t.run_job(JOBS["followup"])
+    t.stop = False
+    t.run_job(JOBS["followup"])
+    js = t.status()["jobs"]["followup"]
+    assert js["stopped"] is True and js["fails_in_row"] == 0 and alerts == []
+    text = tablet.status_text(p, now_ts=ist(2026, 10, 10, 12, 0).timestamp())
+    assert "Lead follow-up   Sat 10 Oct 11:30 stopped" in text and "PROBLEM" not in text
+
+
+def _outreach_db(path: Path, now: float) -> None:
+    from leadgen.outreach.store import OutreachStore
+    from leadgen.util import jdump
+
+    st = OutreachStore(str(path))
+    with st.tx():
+        for day, n, fu, bad in (("2026-10-16", 40, 0, 1), ("2026-10-17", 70, 12, 2)):
+            at = datetime.fromisoformat(day + "T12:00:00+05:30").timestamp()
+            for i in range(n):
+                st.conn.execute("INSERT INTO sends(email,lead_key,step,sent_at,day,status) VALUES(?,?,?,?,?,?)",
+                                (f"a{i}@x.in", "k", 2 if i < fu else 1, at, day, "sent"))
+            for i in range(bad):
+                st.conn.execute("INSERT INTO sends(email,lead_key,step,sent_at,day,status) VALUES(?,?,1,?,?,?)",
+                                (f"b{i}@x.in", "k", at, day, "bounced"))
+        st.conn.execute("INSERT INTO replies(email,lead_key,kind,received_at) VALUES('a1@x.in','k','positive',?)", (now - 3600,))
+    st.set("email_level", {"day": "2026-10-17", "cap": 70, "why": "good day - raised"})
+    st.set("email_level_log", [["2026-10-16", 40, "first day"], ["2026-10-17", 70, "good day - raised"]])
+    st.set("paused_until", now + 3600)
+    st.set("pause_reason", "Gmail said: 550 5.4.5 Daily user sending limit exceeded")
+    st.close()
+    assert jdump
+
+
+def test_status_shows_the_automatic_e_mails(tmp_path, monkeypatch):
+    p = tablet.paths(tmp_path)
+    monkeypatch.setattr(tablet, "git_head_short", lambda: "abc1234")
+    now = ist(2026, 10, 17, 15, 0).timestamp()
+    tablet.write_settings(p["settings"], {"OUTREACH_LIVE": "true"})
+    p["state"].mkdir(parents=True)
+    _outreach_db(p["outreach_db"], now)
+    text = tablet.status_text(p, now_ts=now)
+    assert "Automatic e-mails: ON - target 350 a day; today's limit 70 (good day - raised)" in text
+    assert "Fri 16 Oct:   40 of 40 sent (40 new, 0 follow-ups), 1 bounced" in text
+    assert "Sat 17 Oct:   70 of 70 sent (58 new, 12 follow-ups), 2 bounced" in text
+    assert "bounces 2.7% | replies: 1 interested" in text
+    assert "PAUSED until Sat 17 Oct 16:00: Gmail said: 550 5.4.5" in text
+    tablet.write_settings(p["settings"], {"OUTREACH_LIVE": "false"})
+    assert "Automatic e-mails: OFF - dry-run" in tablet.status_text(p, now_ts=now)
+
+
+def test_manual_update_counts_as_todays_update_check(tmp_path, monkeypatch):
+    p = tablet.paths(tmp_path)
+    monkeypatch.setattr(tablet, "update", lambda *a, **k: 0)
+    monkeypatch.setattr(tablet, "paths", lambda *a, **k: p)
+    assert tablet.main(["update"]) == 0
+    started = tablet.load_json(p["status"])["jobs"]["update"]["last_started"]
+    assert abs(started - time.time()) < 60
+    assert tablet.due_slot(JOBS["update"], tablet.now_local(), started) is None

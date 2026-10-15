@@ -44,8 +44,22 @@ supervise() {
     echo "$(stamp) scheduler stopped (exit code $code)" >> "$LOGF"
     [ -f "$STOPFLAG" ] && break
     if [ "$code" = 75 ]; then
-      echo "$(stamp) another scheduler is already running - this supervisor ends" >> "$LOGF"
-      break
+      # A scheduler is still running without its supervisor (Android closed only the supervisor): watch it and
+      # take over when it ends, so there is always a supervisor and the 15-minute check sees "running".
+      echo "$(stamp) a scheduler is already running - watching it, taking over when it ends" >> "$LOGF"
+      local other
+      other="$(cat "$SCHED_PID" 2>/dev/null || true)"
+      while [ ! -f "$STOPFLAG" ]; do
+        if [ -n "$other" ] && kill -0 "$other" 2>/dev/null; then
+          sleep 20
+        elif [ -z "$other" ]; then
+          sleep 60; break                  # no pid to watch: try again in a minute
+        else
+          break
+        fi
+      done
+      fails=0
+      continue
     fi
     if [ "$code" = 10 ]; then          # updated: start the new version straight away
       fails=0

@@ -250,7 +250,7 @@ JOBS: dict[str, Job] = {j.name: j for j in [
         switch="LEADGEN_ENABLED", timeout_min=100),
     Job("outreach", "Outreach", OUTREACH_TIMES, [["outreach"]], weekdays=(0, 1, 2, 3, 4, 5), switch="OUTREACH_ENABLED",
         lanes=("outreach",),
-        timeout_min=55),
+        timeout_min=75),
     Job("backup", "Backup", ["23:30"], timeout_min=20),
 ]}
 # When several jobs are due, this order decides (an update first, so the others run the new code).
@@ -414,17 +414,19 @@ class Tablet:
             code = 2
         finally:
             self.current = None
-        ok = code in (0, RESTART)
+        stopped = self.stop and code == 143        # ended by "pp stop": not a problem of the job
+        ok = code in (0, RESTART) or stopped
 
         def finish(st):
             js = st.setdefault("jobs", {}).setdefault(job.name, {})
-            js.update(running=False, last_finished=self.now(), last_code=code,
+            js.update(running=False, last_finished=self.now(), last_code=code, stopped=stopped,
                       minutes=round((self.now() - started) / 60, 1),
-                      fails_in_row=0 if ok else int(js.get("fails_in_row", 0)) + 1)
-            if ok:
+                      fails_in_row=0 if code in (0, RESTART) else int(js.get("fails_in_row", 0)) + (0 if stopped else 1))
+            if code in (0, RESTART):
                 js["last_ok"] = self.now()
         js = self.change_status(finish)["jobs"][job.name]
-        self.log(f"end: {job.title} - {'OK' if ok else f'problem (exit code {code})'} after {js['minutes']} min")
+        word = "stopped (pp stop)" if stopped else "OK" if ok else f"problem (exit code {code})"
+        self.log(f"end: {job.title} - {word} after {js['minutes']} min")
         if not ok:
             self._maybe_alert(job, code, js, settings)
         return code
@@ -1020,6 +1022,67 @@ def check_gmail(settings: dict[str, str]) -> tuple[bool, str]:
 
 
 # ------------------------------------------------------------------ status text
+def email_status_lines(p: dict[str, Path], now_ts: float, settings: dict[str, str]) -> list[str]:
+    """Outreach e-mails of the last sending days, read from the outreach memory (read-only)."""
+    import sqlite3
+
+    lines = [""]
+    try:
+        from .config import load_config
+
+        cfg_email = load_config(str(REPO / "config" / "plant-parlour.toml"))["outreach"]["email"]
+        enabled = bool(cfg_email.get("enabled"))
+    except Exception:  # noqa: BLE001 - the status must show even with a broken config
+        cfg_email, enabled = {}, False
+    live = truthy(settings.get("OUTREACH_LIVE")) and truthy(settings.get("OUTREACH_ENABLED"))
+    if not (enabled and live):
+        why = "outreach is off (pp on outreach)" if not truthy(settings.get("OUTREACH_ENABLED")) else \
+            "dry-run: nothing is sent (pp on live)" if not truthy(settings.get("OUTREACH_LIVE")) else \
+            "paused in the campaign config ([outreach.email] enabled = false)"
+        return lines + [f"Automatic e-mails: OFF - {why}"]
+    if not p["outreach_db"].exists():
+        return lines + ["Automatic e-mails: ON - nothing sent yet"]
+    try:
+        con = sqlite3.connect(f"file:{p['outreach_db']}?mode=ro", uri=True, timeout=5)
+        try:
+            meta = {k: v for k, v in con.execute("SELECT key, value FROM meta")}
+            days = [r[0] for r in con.execute("SELECT DISTINCT day FROM sends ORDER BY day DESC LIMIT 6")]
+            rows = []
+            for day in reversed(days):
+                sent = con.execute("SELECT COUNT(*) FROM sends WHERE day=? AND status IN ('sent','invalid')", (day,)).fetchone()[0]
+                fups = con.execute("SELECT COUNT(*) FROM sends WHERE day=? AND status='sent' AND step>1", (day,)).fetchone()[0]
+                bad = con.execute("SELECT COUNT(*) FROM sends WHERE day=? AND status IN ('invalid','bounced')", (day,)).fetchone()[0]
+                rows.append((day, sent, fups, bad))
+            since = now_ts - 7 * 86400
+            s7 = con.execute("SELECT COUNT(*) FROM sends WHERE sent_at>=? AND status IN ('sent','invalid')", (since,)).fetchone()[0]
+            b7 = con.execute("SELECT COUNT(*) FROM sends WHERE sent_at>=? AND status IN ('invalid','bounced')", (since,)).fetchone()[0]
+            r7 = con.execute("SELECT kind, COUNT(*) FROM replies WHERE received_at>=? GROUP BY kind", (since,)).fetchall()
+        finally:
+            con.close()
+    except sqlite3.Error as exc:
+        return lines + [f"Automatic e-mails: ON (could not read the outreach memory: {exc})"]
+    lvl = json.loads(meta.get("email_level") or "{}") or {}
+    log_rows = {r[0]: r[1] for r in (json.loads(meta.get("email_level_log") or "[]") or []) if isinstance(r, list) and len(r) > 1}
+    today = now_local(now_ts).date().isoformat()
+    head = f"Automatic e-mails: ON - target {cfg_email.get('max_per_day')} a day"
+    if lvl.get("day") == today:
+        head += f"; today's limit {lvl.get('cap')} ({lvl.get('why', '')})"
+    lines.append(head)
+    for day, sent, fups, bad in rows:
+        d = datetime.fromisoformat(day)
+        lim = f" of {log_rows[day]}" if day in log_rows else ""
+        lines.append(f"  {d.strftime('%a %d %b')}: {sent:>4}{lim} sent ({sent - fups} new, {fups} follow-ups), {bad} bounced")
+    replies = dict(r7)
+    if s7:
+        lines.append(f"  Last 7 days: bounces {100 * b7 / s7:.1f}% | replies: {replies.get('positive', 0)} interested, "
+                     f"{replies.get('negative', 0)} not interested, {replies.get('other', 0)} other (Replies tab)")
+    paused = float(json.loads(meta.get("paused_until") or "0") or 0)
+    if paused > now_ts:
+        reason = json.loads(meta.get("pause_reason") or '""')
+        lines.append(f"  PAUSED until {fmt_ts(paused)}: {reason} - restarts by itself")
+    return lines
+
+
 def status_text(p: dict[str, Path], now_ts: float | None = None) -> str:
     now_ts = time.time() if now_ts is None else now_ts
     now = now_local(now_ts)
@@ -1053,6 +1116,7 @@ def status_text(p: dict[str, Path], now_ts: float | None = None) -> str:
         lines += ["", "Lead generation, last days:"] + days
     else:
         lines += ["", "Lead generation: no run on this tablet in the last 7 days yet."]
+    lines += email_status_lines(p, now_ts, settings)
     lines += ["", f"{'Job':<17}{'Last run':<34}{'Next':<16}"]
     for name in ("daily", "followup", "outreach", "backup", "update"):
         job = JOBS[name]
@@ -1069,7 +1133,8 @@ def status_text(p: dict[str, Path], now_ts: float | None = None) -> str:
             last = f"{fmt_ts(js.get('last_started'))} interrupted"
         elif js.get("last_finished"):
             code = js.get("last_code")
-            last = f"{fmt_ts(js.get('last_started'))} {'OK' if code in (0, RESTART) else f'PROBLEM ({code})'}"
+            word = "OK" if code in (0, RESTART) else "stopped" if js.get("stopped") else f"PROBLEM ({code})"
+            last = f"{fmt_ts(js.get('last_started'))} {word}"
         else:
             last = "never"
         if not job_enabled(job, settings):
@@ -1444,7 +1509,12 @@ def _main(argv=None) -> int:
 def _locked_command(args, p: dict[str, Path]) -> int:
     if args.cmd == "update":
         log = Log(p, sys.stdout)
-        return update(p, log=log, discard_local=args.discard_local, check_only=args.check)
+        started = time.time()
+        code = update(p, log=log, discard_local=args.discard_local, check_only=args.check)
+        if not args.check:
+            # This counts as today's update check: the scheduler need not fetch again right away.
+            Tablet(p).change_status(lambda st: st.setdefault("jobs", {}).setdefault("update", {}).update(last_started=started))
+        return code
     if args.cmd == "rollback":
         return rollback(p, log=Log(p, sys.stdout))
     if args.cmd == "import":
