@@ -132,6 +132,7 @@ def test_run_job_runs_steps_records_status_and_alerts_on_repeated_failure(tmp_pa
     st = t.status()
     assert st["jobs"]["daily"]["fails_in_row"] == 1 and st["jobs"]["daily"]["running"] is False
     assert st["jobs"]["followup"]["last_started"] == clock[0]          # daily covers the follow-up
+    assert st["jobs"]["followup"]["last_code"] == 2                    # ...and shows the daily's result, not an old one
     assert alerts == []                                                # one failure: no alert yet
     t.run_job(JOBS["daily"])
     assert alerts == ["Lead generation needs a look"]

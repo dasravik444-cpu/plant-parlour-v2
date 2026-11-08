@@ -424,6 +424,10 @@ class Tablet:
                       fails_in_row=0 if code in (0, RESTART) else int(js.get("fails_in_row", 0)) + (0 if stopped else 1))
             if code in (0, RESTART):
                 js["last_ok"] = self.now()
+            for other in job.covers:
+                # The covered job's work was done by this one: show this run's result for it, not an old one.
+                st["jobs"].setdefault(other, {}).update(last_finished=self.now(), last_code=code, stopped=stopped,
+                                                        running=False)
         js = self.change_status(finish)["jobs"][job.name]
         word = "stopped (pp stop)" if stopped else "OK" if ok else f"problem (exit code {code})"
         self.log(f"end: {job.title} - {word} after {js['minutes']} min")
