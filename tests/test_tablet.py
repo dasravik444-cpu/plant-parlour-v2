@@ -614,3 +614,21 @@ def test_manual_update_counts_as_todays_update_check(tmp_path, monkeypatch):
     started = tablet.load_json(p["status"])["jobs"]["update"]["last_started"]
     assert abs(started - time.time()) < 60
     assert tablet.due_slot(JOBS["update"], tablet.now_local(), started) is None
+
+
+def test_an_interrupted_update_goes_back_and_is_tried_again(repos, monkeypatch):
+    clone, commit, p = repos["clone"], repos["commit"], repos["p"]
+    quiet = lambda m: None  # noqa: E731
+    v1 = _git(clone, "rev-parse", "HEAD")
+    v2 = commit("v2", {"app.txt": "v2\n"})
+    real_checks = tablet.run_checks
+
+    def interrupted(python, log, runner=None):
+        raise KeyboardInterrupt                                     # Ctrl+C while the tests run
+    monkeypatch.setattr(tablet, "run_checks", interrupted)
+    with pytest.raises(KeyboardInterrupt):
+        tablet.update(p, python="py", log=quiet)
+    assert _git(clone, "rev-parse", "HEAD") == v1                    # never left on an untested version
+    monkeypatch.setattr(tablet, "run_checks", real_checks)
+    assert tablet.update(p, python="py", log=quiet) == RESTART       # next time: tested and installed
+    assert _git(clone, "rev-parse", "HEAD") == v2

@@ -794,14 +794,24 @@ def update(p: dict[str, Path], *, python: str | None = None, log=print, discard_
     req_before = requirements_hash()
     log(f"  updating {old[:7]} -> {new[:7]}:\n" + "\n".join("    " + c for c in changes.splitlines()[:20]))
     git("checkout", "--quiet", "--force", "-B", branch, f"origin/{branch}")
-    req_changed = requirements_hash() != req_before
-    ok = True
-    if req_changed:
-        log("  new Python packages needed - installing")
-        ok = pip_install(python, log)
-    failures: set[str] = set()
-    if ok:
-        ok, failures = run_checks(python, log, runner)
+    req_changed = False
+    try:
+        req_changed = requirements_hash() != req_before
+        ok = True
+        if req_changed:
+            log("  new Python packages needed - installing")
+            ok = pip_install(python, log)
+        failures: set[str] = set()
+        if ok:
+            ok, failures = run_checks(python, log, runner)
+    except BaseException:
+        # Interrupted (Ctrl+C, the tablet stopping it) before the tests finished: never keep an untested
+        # version - go back, so the next update tries this one again from the start.
+        log(f"  update interrupted before the tests finished - back to {old[:7]}; it is tried again next time")
+        git("checkout", "--quiet", "--force", "-B", branch, old)
+        if req_changed:
+            pip_install(python, log)
+        raise
     baseline = set(rec.get("baseline_failures") or [])
     new_fail = failures - baseline
     if not ok or new_fail:
