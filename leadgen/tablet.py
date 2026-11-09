@@ -241,11 +241,13 @@ JOBS: dict[str, Job] = {j.name: j for j in [
     Job("daily", "Lead generation", ["06:00"],
         [["run", "--budget-minutes", "120"],
          ["email-hunt", "--limit", "1000", "--budget-minutes", "40"],
+         ["call-list"],
          ["usp-refresh", "--limit", "600", "--budget-minutes", "20"]],
         switch="LEADGEN_ENABLED", timeout_min=200, covers=("followup",)),
     Job("followup", "Lead follow-up", ["11:30", "16:30", "21:30"],
         [["run", "--budget-minutes", "45"],
          ["email-hunt", "--limit", "600", "--budget-minutes", "20"],
+         ["call-list"],
          ["usp-refresh", "--limit", "400", "--budget-minutes", "10"]],
         switch="LEADGEN_ENABLED", timeout_min=100),
     Job("outreach", "Outreach", OUTREACH_TIMES, [["outreach"]], weekdays=(0, 1, 2, 3, 4, 5), switch="OUTREACH_ENABLED",
@@ -1463,6 +1465,8 @@ def build_parser() -> argparse.ArgumentParser:
     t.add_argument("--count", type=int, default=2)
     sub.add_parser("record-tests", help="remember which tests fail on this tablet now (used by the updater)")
     sub.add_parser("replan", help="re-plan the area after the area or number of days changed (leads are kept)")
+    c = sub.add_parser("calls", help="make today's call list in the Google Sheet now")
+    c.add_argument("--day", default="", help="another day (YYYY-MM-DD)")
     w = sub.add_parser("switch", help="turn a part on or off")
     w.add_argument("key", choices=sorted(SWITCH_DEFAULTS))
     w.add_argument("state", choices=["on", "off"])
@@ -1488,6 +1492,11 @@ def _main(argv=None) -> int:
         return 0
     if args.cmd == "run":
         return Tablet(p, stream=sys.stdout).run_job(JOBS[args.job], manual=True)
+    if args.cmd == "calls":
+        # Only reads the Leads tab and writes the day's call-list tab: fine while any job runs.
+        env = job_env(p, effective_settings(p))
+        cmd = [sys.executable, "-m", "leadgen", "call-list"] + (["--day", args.day] if args.day else [])
+        return subprocess.run(cmd, cwd=str(REPO), env=env).returncode
     if args.cmd in ("update", "rollback", "import", "test-email", "record-tests", "replan"):
         # These change the code or a memory: never while a job is running in the same lane.
         lanes = {"test-email": ("outreach",), "replan": ("leads",)}.get(args.cmd, LANES)

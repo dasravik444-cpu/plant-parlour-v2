@@ -118,6 +118,17 @@ If the tablet was off at one of these times, the job runs as soon as it is back.
 
 If Android closes Termux anyway, Plant Parlour starts again by itself - within 15 minutes, after a restart, or as soon as you open Termux - catches up on what it missed, and e-mails you that it had stopped (at most once every 6 hours). `pp status` shows the last interruption and the leads of the last 7 days.
 
+## The daily call list
+
+Every morning (ready by about 9:00, topped up after the 11:30 and 16:30 runs) the Google Sheet gets a new tab
+**Calls YYYY-MM-DD** with that day's new leads that have a phone number: business, contact person (owner or
+manager, when the business published one), phone, other numbers, WhatsApp, e-mail, category, area, address and
+website, best leads first. Leads that replied to an e-mail are at the top of every day's list until you change their
+Status in the Leads tab. Pick a **Call Result** from the drop-down and type **Notes**: they are kept when the list is
+topped up. The last 14 days of lists stay; an older one is removed only if nothing was written in it (all leads
+stay in the Leads tab anyway). To get a PDF: open the tab in the Google Sheets app, then menu > Share & export >
+Save as > PDF. To make it right now: `pp calls` (another day: `pp calls --day 2026-11-09`).
+
 ## The `pp` command
 
 Type `pp` in Termux for a menu, or:
@@ -129,6 +140,7 @@ Type `pp` in Termux for a menu, or:
 | `pp update` | get the newest version now (tested first, undone if anything breaks) |
 | `pp rollback` | go back to the version before the last update |
 | `pp test-email` | the next 2 outreach e-mails: shown first, sent after your yes (works while the lead generation runs) |
+| `pp calls` | make today's call list now (it is made by itself every morning; see below) |
 | `pp settings` | change the sheet, key, Gmail, App Password, WhatsApp number |
 | `pp off outreach` / `pp on outreach` | pause / resume outreach (also `leads`, `live`, `updates`) |
 | `pp stop` / `pp start` | stop everything / start again (a stop also lasts through a restart) |

@@ -14,6 +14,7 @@ pp logs            today's log (pp logs 300 = more lines, pp logs live = watch i
 pp update          get the newest version now (it is tested first and undone if anything breaks)
 pp rollback        go back to the version before the last update
 pp test-email      show the next 2 outreach e-mails and send them after you say yes
+pp calls          make today's call list now (tab "Calls <date>" in the Google Sheet; made by itself every morning)
 pp run JOB         run a job now: daily | followup | outreach | backup
 pp settings        change the passwords, keys and numbers
 pp import          load the campaign memory GitHub saved (pp-state.zip, pp-outreach.zip in Downloads)
@@ -121,6 +122,7 @@ case "$cmd" in
     pp_tablet rollback
     if [ $? = 10 ]; then restart_if_running; fi ;;
   test-email|test-emails) need_setup; pp_tablet test-email "$@" ;;
+  calls|call-list) need_setup; pp_tablet calls "$@" ;;
   run) need_setup; [ $# -ge 1 ] || pp_die "Which job? pp run daily | followup | outreach | backup"; pp_tablet run "$@" ;;
   settings) need_setup; pp_tablet setup ;;
   import) need_setup; pp_tablet import "$@" ;;

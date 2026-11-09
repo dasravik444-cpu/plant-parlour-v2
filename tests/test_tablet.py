@@ -127,7 +127,7 @@ def test_run_job_runs_steps_records_status_and_alerts_on_repeated_failure(tmp_pa
     runner = FakeRunner({"email-hunt": 2})
     t = Tablet(p, python="py", runner=runner, now_fn=lambda: clock[0])
     assert t.run_job(JOBS["daily"]) == 2
-    assert [c[0][0] for c in runner.calls] == ["run", "email-hunt", "usp-refresh"]
+    assert [c[0][0] for c in runner.calls] == ["run", "email-hunt", "call-list", "usp-refresh"]
     assert runner.calls[0][1]["PP_SHEET_ID"] == "sid"
     st = t.status()
     assert st["jobs"]["daily"]["fails_in_row"] == 1 and st["jobs"]["daily"]["running"] is False
@@ -163,7 +163,7 @@ def test_serve_runs_due_jobs_then_waits(tmp_path, monkeypatch):
     # backup (23:30 yesterday) counts as done
     tablet.save_json(p["status"], {"jobs": {"backup": {"last_started": ist(2026, 10, 9, 23, 30).timestamp()}}})
     assert t.serve(max_loops=3, sleep_fn=lambda s: None) == 0
-    assert [c[0][0] for c in runner.calls] == ["run", "email-hunt", "usp-refresh"]
+    assert [c[0][0] for c in runner.calls] == ["run", "email-hunt", "call-list", "usp-refresh"]
     st = t.status()
     assert st["scheduler"]["version"] == "abc1234" and "heartbeat" in st["scheduler"]
     assert not p["pid"].exists()

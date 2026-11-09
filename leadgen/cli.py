@@ -90,6 +90,9 @@ def build_parser() -> argparse.ArgumentParser:
     o.add_argument("--db", default=DEFAULT_OUTREACH_DB, help=f"outreach state database (default {DEFAULT_OUTREACH_DB})")
     o.add_argument("--mode", choices=["dry-run", "live"], default=None, help="override [outreach].mode")
     o.add_argument("--max-emails", type=int, default=None, help="send at most this many e-mails in this run (testing)")
+    c = sub.add_parser("call-list", help="today's call list as a tab in the Google Sheet (Calls YYYY-MM-DD)")
+    c.add_argument("--config", default=DEFAULT_CONFIG, help=f"campaign config (default {DEFAULT_CONFIG})")
+    c.add_argument("--day", default="", help="the day (YYYY-MM-DD); default today in the campaign's time zone")
     sub.add_parser("probe", help="live diagnostics of external sources").add_argument("--only", default="")
     return ap
 
@@ -117,6 +120,8 @@ def main(argv=None) -> int:
         return cmd_doctor(cfg, args)
     if args.cmd == "outreach":
         return cmd_outreach(cfg, args)
+    if args.cmd == "call-list":
+        return cmd_call_list(cfg, args)
     db = DB(args.db)
     try:
         if args.cmd == "run":
@@ -196,6 +201,35 @@ def _mask_contacts(text: str) -> str:
 
     text = re.sub(r"([A-Za-z0-9._%+'-])[A-Za-z0-9._%+'-]*@([A-Za-z0-9.-]+\.[A-Za-z]{2,24})", r"\1***@\2", text)
     return re.sub(r"\+\d[\d \-]{8,}\d", lambda m: m.group(0)[:4] + "*******" + m.group(0)[-3:], text)
+
+
+def cmd_call_list(cfg, args) -> int:
+    from datetime import date
+
+    from .calllist import make_call_list
+    from .sheets import SheetsClient, SheetsError
+    from .util import local_now
+
+    day = args.day or local_now(cfg.tz).date().isoformat()
+    try:
+        date.fromisoformat(day)
+    except ValueError:
+        print(f"--day must look like 2026-11-09, not {day!r}", file=sys.stderr)
+        return 1
+    if not cfg.sheet_id:
+        print("no Google Sheet configured (PP_SHEET_ID)", file=sys.stderr)
+        return 1
+    try:
+        s = make_call_list(cfg, SheetsClient(cfg.sheet_id), day)
+    except SheetsError as exc:
+        print(f"Google Sheet error: {exc}", file=sys.stderr)
+        return 2
+    print(f"Call list ready: tab \"{s['tab']}\" in your Google Sheet - {s['rows']} businesses to call "
+          f"({s['hot']} who replied to an e-mail first, then {s['with_phone']} new leads with a phone number; "
+          f"{s['today']} leads were added that day)." + (f" Your notes on {s['kept_notes']} leads were kept." if s["kept_notes"] else ""))
+    if s["removed_old"]:
+        print(f"Old empty lists removed: {', '.join(s['removed_old'])}")
+    return 0
 
 
 def cmd_outreach(cfg, args) -> int:
