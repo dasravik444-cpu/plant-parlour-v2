@@ -1,0 +1,105 @@
+{
+ "_comment": "Words of the Plant Parlour brochure (marketing/brochure.pdf). Change them here, then: python marketing/build_brochure.py --phone \"+91 ...\". The phone number is NOT kept here (this repository is public).",
+ "brand": "Plant Parlour",
+ "tagline": "Plants & plant care · Kolkata",
+ "headline": "Green spaces that stay healthy, looked after for you.",
+ "subline": "We supply the right plants for your space and season, and our gardeners keep them fresh with regular care visits - for cafes, restaurants, hotels, offices, clinics, salons and homes.",
+ "services": [
+  {
+   "art": "care",
+   "title": "Plant maintenance",
+   "text": "Watering, trimming, leaf cleaning and pest checks by our gardener.",
+   "price": "₹500 / hour"
+  },
+  {
+   "art": "supply",
+   "title": "Plant supply",
+   "text": "Flowering, ornamental and indoor evergreen plants, delivered and placed.",
+   "price": "Wholesale rates"
+  },
+  {
+   "art": "feed",
+   "title": "Fertiliser when needed",
+   "text": "Added during maintenance visits whenever your plants need feeding.",
+   "price": "Included"
+  }
+ ],
+ "rate_title": "Maintenance: choose how often we come",
+ "rate_note": "₹500 per hour of care. Prices shown per week. Change the plan any time.",
+ "plans": [
+  {
+   "label": "1 day a week",
+   "days": 1
+  },
+  {
+   "label": "2 days a week",
+   "days": 2
+  },
+  {
+   "label": "Every day",
+   "days": 7
+  }
+ ],
+ "hours": [
+  1,
+  2
+ ],
+ "rate": 500,
+ "supply_note": "Plant prices depend on type, size and quantity - send us your space or a photo on WhatsApp for a quote.",
+ "steps": [
+  {
+   "art": "chat",
+   "title": "Message us on WhatsApp",
+   "text": "Tell us about your space, or send a photo."
+  },
+  {
+   "art": "pick",
+   "title": "We suggest plants",
+   "text": "Right for your light, AC and the season."
+  },
+  {
+   "art": "deliver",
+   "title": "We deliver and place",
+   "text": "Healthy plants, set up where they look best."
+  },
+  {
+   "art": "care",
+   "title": "We keep them healthy",
+   "text": "Regular care visits on the days you choose."
+  }
+ ],
+ "kinds": [
+  {
+   "icon": "flower",
+   "label": "Flowering plants"
+  },
+  {
+   "icon": "leaf",
+   "label": "Ornamental plants"
+  },
+  {
+   "icon": "pot",
+   "label": "Indoor evergreen"
+  },
+  {
+   "icon": "snow",
+   "label": "AC & indoor temperature"
+  },
+  {
+   "icon": "sun",
+   "label": "Summer-ready plants"
+  },
+  {
+   "icon": "rain",
+   "label": "Monsoon & winter picks"
+  }
+ ],
+ "promises": [
+  "Healthy, hand-picked plants for your space",
+  "Wholesale prices",
+  "Flexible visits: 1 or 2 hours, on the days you choose"
+ ],
+ "cta_title": "Get your plant plan.",
+ "cta_text": "Send a WhatsApp message with your space or a photo. We reply with plant ideas and a price.",
+ "edition": "PP-2026-11"
+}
